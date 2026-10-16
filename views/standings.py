@@ -1,7 +1,6 @@
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 
 from sleeper import bracket, stats, theme
 
@@ -112,9 +111,10 @@ with tabs["Playoff picture"]:
                       "leader": r.Status.startswith("Division leader") or not has_divisions}
         for _, r in seeds[seeds.Seed.notna()].iterrows()
     }
-    # Rendered in a frame: st.html sanitizes SVG away
-    components.html(
-        '<body style="margin:0">'
+    # Rendered in a frame because st.html sanitizes SVG away. All team names and image
+    # URLs are HTML-escaped in bracket_svg, since they come from Sleeper users.
+    st.iframe(
+        '<!doctype html><body style="margin:0">'
         + bracket.bracket_svg(bracket_teams, data.playoff_teams, data.last_regular_week + 1,
                               data.playoff_round_type)
         + "</body>",

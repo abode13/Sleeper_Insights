@@ -7,8 +7,8 @@ data = st.session_state["data"]
 st.title("Bye luck")
 st.markdown(
     "How much did byes help or hurt you? For each week we take the **best possible lineup** "
-    "with every rostered player valued at his season average (points per game in this "
-    "league's scoring), then again **without the players on bye**. The difference is the "
+    "with every rostered player valued at his season average (points per game played, in "
+    "this league's scoring), then again **without the players on bye**. The difference is the "
     "points that team lost to byes.\n\n"
     "A bench player steps in where possible, and so can a **waiver pickup** at replacement "
     "level — so a team with only one defense or QB loses the gap to the best waiver option, "
@@ -23,8 +23,12 @@ if not data.byes:
 repl = stats.replacement_values(data)
 if repl:
     with st.expander("Waiver replacement values (points per game)"):
-        st.caption("Estimated best free agent per position: the bottom quarter of rostered "
-                   "players at that position (Sleeper doesn't report free-agent points).")
+        if data.has_nfl_stats:
+            st.caption(f"Median of the {stats.REPLACEMENT_TOP_N} best healthy free agents per "
+                       "position who have played at least half the weeks so far.")
+        else:
+            st.caption("Fallback estimate (NFL stats unavailable): the bottom quarter of "
+                       "rostered players at that position.")
         st.dataframe({pos: [round(v, 1)] for pos, v in repl.items()}, hide_index=True)
 
 weekly, detail = stats.bye_luck(data)

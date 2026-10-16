@@ -5,8 +5,13 @@ from sleeper import stats, theme
 
 data = st.session_state["data"]
 st.title("Players")
-st.caption("Only points scored while on a fantasy roster in this league are counted "
-           "(Sleeper doesn't report points for free agents).")
+if data.has_nfl_stats:
+    st.caption("**Total** and **started** count points scored while on a roster in this "
+               "league. **Games** and **Avg** cover every NFL game the player played this "
+               "season, scored with this league's settings.")
+else:
+    st.caption("Only points scored while on a fantasy roster in this league are counted; "
+               "weeks with 0 points are treated as missed games (NFL stats unavailable).")
 
 summary = stats.player_summary(data)
 if summary.empty:
@@ -34,8 +39,11 @@ st.dataframe(
     column_config={
         "name": "Player", "pos": "Pos", "nfl_team": "NFL", "fantasy_team": "Fantasy team",
         "total": st.column_config.NumberColumn("Total", format="%.2f"),
-        "games": st.column_config.NumberColumn("Games", help="Weeks with non-zero points"),
-        "avg": st.column_config.NumberColumn("Avg", format="%.2f"),
+        "games": st.column_config.NumberColumn(
+            "Games", help="NFL games played this season" if data.has_nfl_stats
+            else "Weeks with non-zero points on a league roster"),
+        "avg": st.column_config.NumberColumn("Avg", format="%.2f",
+                                             help="Points per game played"),
         "started": "Started",
         "started_pts": st.column_config.NumberColumn("Pts as starter", format="%.2f"),
     },

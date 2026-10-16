@@ -169,10 +169,27 @@ def lineup_efficiency(data: LeagueData) -> pd.DataFrame:
 # ---------------------------------------------------------------- players
 
 def player_values(data: LeagueData) -> pd.Series:
-    """Average points per game this season (league scoring), ignoring 0-point weeks."""
+    """Average points per game this season, in league scoring.
+
+    Uses every NFL game the player actually played (Sleeper's weekly stats). Fallback
+    when those stats are unavailable: weeks on a league roster, with 0-point weeks
+    treated as missed games.
+    """
+    if data.has_nfl_stats:
+        ps = data.player_stats
+        ps = ps[ps.played & (ps.week < data.current_week)]
+        return ps.groupby("player_id").points.mean()
     pw = data.player_weeks
     pw = pw[(pw.week < data.current_week) & (pw.points != 0)]
     return pw.groupby("player_id").points.mean()
+
+
+def games_played(data: LeagueData) -> pd.Series:
+    """NFL games played per player this season (empty without Sleeper's weekly stats)."""
+    ps = data.player_stats
+    if not data.has_nfl_stats:
+        return pd.Series(dtype=int)
+    return ps[ps.played & (ps.week < data.current_week)].groupby("player_id").size()
 
 
 def player_summary(data: LeagueData) -> pd.DataFrame:
@@ -181,6 +198,10 @@ def player_summary(data: LeagueData) -> pd.DataFrame:
     g = pw.groupby(["player_id", "name", "pos", "nfl_team"], dropna=False)
     df = g.agg(total=("points", "sum"), games=("points", lambda s: (s != 0).sum())).reset_index()
     df["avg"] = df.total / df.games.where(df.games > 0)
+    if data.has_nfl_stats:
+        # Real NFL games and per-game average over the whole season, not just roster weeks
+        df["games"] = df.player_id.map(games_played(data)).fillna(0).astype(int)
+        df["avg"] = df.player_id.map(player_values(data))
     df["started"] = df.player_id.map(started.groupby("player_id").size()).fillna(0).astype(int)
     df["started_pts"] = df.player_id.map(started.groupby("player_id").points.sum()).fillna(0)
     # Fantasy team the player is on now (or was on last)
@@ -193,25 +214,46 @@ def player_summary(data: LeagueData) -> pd.DataFrame:
 
 # ---------------------------------------------------------------- bye luck
 
-REPLACEMENT_QUANTILE = 0.25
+REPLACEMENT_TOP_N = 5  # waiver value = median of the N best available free agents
+REPLACEMENT_QUANTILE = 0.25  # fallback: this quantile of rostered players
+UNAVAILABLE = {"IR", "Out", "PUP", "Sus", "DNR", "NA", "COV"}
 
 
 def replacement_values(data: LeagueData, values: pd.Series | None = None) -> dict[str, float]:
-    """Estimated value of the best waiver-wire player per position.
+    """Value of a realistic waiver-wire pickup per position (points per game).
 
-    Sleeper only reports points for rostered players, so we approximate the best free
-    agent by the bottom quarter of currently rostered players at that position.
+    With Sleeper's weekly stats: the median of the best few healthy free agents who have
+    played at least half the weeks so far (median, so one hot streak doesn't set it). Without them (fallback): the bottom quarter of
+    currently rostered players, since free agents have no data then.
     """
     if values is None:
         values = player_values(data)
+    rostered = {p for pids in data.current_rosters.values() for p in pids}
     by_pos: dict[str, list[float]] = {}
-    for pids in data.current_rosters.values():
-        for p in pids:
-            v = values.get(p)
-            if v is not None and v > 0:
-                by_pos.setdefault(data.player(p)["pos"], []).append(float(v))
-    return {pos: float(pd.Series(v).quantile(REPLACEMENT_QUANTILE))
-            for pos, v in sorted(by_pos.items())}
+    for p in rostered:
+        v = values.get(p)
+        if v is not None and v > 0:
+            by_pos.setdefault(data.player(p)["pos"], []).append(float(v))
+    fallback = {pos: float(pd.Series(v).quantile(REPLACEMENT_QUANTILE))
+                for pos, v in sorted(by_pos.items())}
+    if not data.has_nfl_stats:
+        return fallback
+
+    gp = games_played(data)
+    weeks_done = int(data.player_stats.week[data.player_stats.week < data.current_week].nunique())
+    min_games = max(1, (weeks_done + 1) // 2)
+    free_agents: dict[str, list[float]] = {}
+    for p, v in values.items():
+        info = data.player(p)
+        if (p in rostered or not info.get("team") or gp.get(p, 0) < min_games
+                or info.get("injury_status") in UNAVAILABLE):
+            continue
+        free_agents.setdefault(info["pos"], []).append(float(v))
+    result = {}
+    for pos in fallback:
+        best = sorted(free_agents.get(pos, []), reverse=True)[:REPLACEMENT_TOP_N]
+        result[pos] = float(pd.Series(best).median()) if best else fallback[pos]
+    return result
 
 
 def bye_luck(data: LeagueData) -> tuple[pd.DataFrame, pd.DataFrame]:

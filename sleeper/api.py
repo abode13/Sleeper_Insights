@@ -46,6 +46,25 @@ def matchups_many(league_id: str, weeks: tuple[int, ...]) -> dict[int, list[dict
         return dict(zip(weeks, results))
 
 
+@st.cache_data(ttl=3600, show_spinner="Loading NFL player stats…")
+def weekly_stats(season: int, weeks: tuple[int, ...],
+                 stat_keys: tuple[str, ...]) -> dict[int, dict[str, dict]]:
+    """Every NFL player's stats per week: week -> player_id -> {stat: value}.
+
+    Undocumented endpoint (it's what Sleeper's own app uses), so callers must handle
+    failures. Slimmed to the stats the league scores plus games played ("gp").
+    """
+    keep = set(stat_keys) | {"gp"}
+
+    def fetch(week):
+        raw = _get(f"/stats/nfl/regular/{season}/{week}") or {}
+        return {pid: {k: v for k, v in s.items() if k in keep}
+                for pid, s in raw.items() if isinstance(s, dict)}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(weeks, pool.map(fetch, weeks)))
+
+
 @st.cache_data(ttl=86400, show_spinner="Loading NFL player database…")
 def players() -> dict[str, dict]:
     """All NFL players, slimmed down to the fields we use.
@@ -64,5 +83,6 @@ def players() -> dict[str, dict]:
             "pos": pos or "?",
             "team": p.get("team"),
             "fantasy_positions": p.get("fantasy_positions") or ([pos] if pos else []),
+            "injury_status": p.get("injury_status"),
         }
     return slim

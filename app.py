@@ -51,10 +51,12 @@ with st.sidebar:
         st.caption(f"{data.season} season · regular season complete")
     else:
         st.caption(f"{data.season} season · week {data.current_week} in progress")
+    if not data.has_nfl_stats:
+        st.caption("⚠️ NFL player stats unavailable — averages use league matchup points.")
     if st.button("Refresh data", width="stretch"):
         # Keep the 24h player database cache; Sleeper asks not to refetch it often
         for fn in (load_league, api.nfl_state, api.league, api.users, api.rosters,
-                   api.matchups_many):
+                   api.matchups_many, api.weekly_stats):
             fn.clear()
         st.rerun()
 

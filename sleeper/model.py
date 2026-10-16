@@ -30,6 +30,13 @@ class LeagueData:
     players: dict = field(default_factory=dict)  # player_id -> slim player info
     byes: dict = field(default_factory=dict)  # NFL team -> bye week
     divisions: dict = field(default_factory=dict)  # division number -> {"name", "avatar"}
+    # Every NFL player's completed weeks scored with this league's settings:
+    # week, player_id, points, played. Empty if Sleeper's stats endpoint failed.
+    player_stats: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    @property
+    def has_nfl_stats(self) -> bool:
+        return not self.player_stats.empty
 
     def team_name(self, roster_id) -> str:
         return self.names.get(roster_id, f"Team {roster_id}")
@@ -40,7 +47,7 @@ class LeagueData:
 
     def player(self, pid: str) -> dict:
         return self.players.get(pid) or {
-            "name": pid, "pos": "?", "team": None, "fantasy_positions": []
+            "name": pid, "pos": "?", "team": None, "fantasy_positions": [], "injury_status": None
         }
 
 
@@ -76,6 +83,30 @@ def _teams(users: list[dict], rosters: list[dict]) -> pd.DataFrame:
             "sleeper_fpts": s.get("fpts", 0) + s.get("fpts_decimal", 0) / 100,
         })
     return pd.DataFrame(rows).sort_values("roster_id").reset_index(drop=True)
+
+
+def _player_stats(season: int, current_week: int, scoring_settings: dict) -> pd.DataFrame:
+    """Score every NFL player's completed weeks with the league's own scoring rules.
+
+    Sleeper's matchups only report points for rostered players and can't tell a missed
+    game from a 0-point game; the weekly stats endpoint has both. Returns an empty frame
+    if that (undocumented) endpoint fails, and callers fall back to matchup points.
+    """
+    scoring = {k: float(v) for k, v in scoring_settings.items() if v}
+    weeks = tuple(range(1, min(current_week, 19)))
+    columns = ["week", "player_id", "points", "played"]
+    if not scoring or not weeks:
+        return pd.DataFrame(columns=columns)
+    try:
+        weekly = api.weekly_stats(season, weeks, tuple(sorted(scoring)))
+    except Exception:
+        return pd.DataFrame(columns=columns)
+    rows = [
+        (week, pid, round(sum(float(s.get(k) or 0) * v for k, v in scoring.items()), 2),
+         float(s.get("gp") or 0) > 0)
+        for week, stats in weekly.items() for pid, s in stats.items()
+    ]
+    return pd.DataFrame(rows, columns=columns)
 
 
 def _divisions(lg: dict) -> dict[int, dict]:
@@ -184,4 +215,5 @@ def load_league(league_id: str) -> LeagueData:
         players=players,
         byes=schedule.bye_weeks(season),
         divisions=_divisions(lg),
+        player_stats=_player_stats(season, current_week, lg.get("scoring_settings") or {}),
     )
