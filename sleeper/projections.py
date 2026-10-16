@@ -111,23 +111,25 @@ def fantasypros(data: LeagueData, api_key: str) -> tuple[pd.DataFrame, list[str]
         return candidates[0][0] if candidates else None
 
     rows, unmatched = {}, []
+    rank_types = (("weekly", (("type", "weekly"), ("week", week)), "fp"),
+                  ("ros", (("type", "ros"),), "fp_ros"))
+
+    def rankings(fp_pos, params):
+        return _players(api.fantasypros("consensus-rankings", data.season, (
+            ("position", fp_pos), ("scoring", "HALF"), *params), api_key))
+
+    # Position ranks (e.g. WR3) from each position's list. Note: the free public API only
+    # returns the top 10 players of every list.
     for fp_pos, sleeper_pos in FP_POSITIONS.items():
-        # Consensus rankings for this week, and rest of season
-        for kind, params, prefix in (
-            ("weekly", (("type", "weekly"), ("week", week)), "fp"),
-            ("ros", (("type", "ros"),), "fp_ros"),
-        ):
-            ranks = api.fantasypros("consensus-rankings", data.season, (
-                ("position", fp_pos), ("scoring", "HALF"), *params), api_key)
-            for r in _players(ranks):
+        for kind, params, prefix in rank_types:
+            for r in rankings(fp_pos, params):
                 pid = match(r, sleeper_pos)
                 if pid is None:
                     if kind == "weekly":
                         unmatched.append(str(_first(r, "player_name", "name", default="?")))
                     continue
-                entry = rows.setdefault(pid, {"player_id": pid})
-                entry[f"{prefix}_ecr"] = _first(r, "rank_ecr", "ecr", "rank")
-                entry[f"{prefix}_pos_rank"] = _first(r, "pos_rank", "position_rank")
+                rows.setdefault(pid, {"player_id": pid})[f"{prefix}_pos_rank"] = _first(
+                    r, "pos_rank", "position_rank")
         projs = api.fantasypros("projections", data.season, (
             ("position", fp_pos), ("week", week), ("scoring", "HALF")), api_key)
         for r in _players(projs):
@@ -135,8 +137,19 @@ def fantasypros(data: LeagueData, api_key: str) -> tuple[pd.DataFrame, list[str]
             if pid is None:
                 continue
             stats = r.get("stats") if isinstance(r.get("stats"), dict) else {}
-            pts = _first(r, "fpts", "points", "proj_pts") or _first(stats, "points", "fpts")
+            # points_half matches the HALF scoring requested; plain "points" is standard
+            pts = _first(stats, "points_half", "points") or _first(r, "fpts", "points")
             rows.setdefault(pid, {"player_id": pid})["fp_proj"] = pts
+
+    # Overall rank from the overall list: "OP" includes QBs (superflex), "ALL" is FLEX-style
+    overall = "OP" if "SUPER_FLEX" in data.roster_positions else "ALL"
+    for kind, params, prefix in rank_types:
+        for r in rankings(overall, params):
+            sleeper_pos = FP_POSITIONS.get(str(r.get("player_position_id")), None)
+            pid = match(r, sleeper_pos) if sleeper_pos else None
+            if pid is not None:
+                rows.setdefault(pid, {"player_id": pid})[f"{prefix}_ecr"] = _first(
+                    r, "rank_ecr", "ecr", "rank")
 
     df = pd.DataFrame(list(rows.values()), columns=cols)
     for c in ("fp_ecr", "fp_ros_ecr", "fp_proj"):
