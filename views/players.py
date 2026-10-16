@@ -68,17 +68,28 @@ if data.has_nfl_stats:
 
 event = st.dataframe(
     view[cols], hide_index=True, width="stretch", height=420, column_config=column_config,
-    on_select="rerun", selection_mode="single-row", key="players_table",
+    # Cell selection too, so clicking anywhere in a row picks that player
+    on_select="rerun", selection_mode=["single-row", "single-cell"], key="players_table",
 )
-st.caption("👆 Click a row to see that player's week-by-week stats.")
+st.caption("👆 Click a player to see his week-by-week stats.")
 
 # -- Player detail ------------------------------------------------------------------------
-rows = event.selection.rows if event else []
-if rows:
-    p = view.iloc[rows[0]]
+sel = event.selection if event else None
+row = sel.rows[0] if sel and sel.rows else (sel.cells[0][0] if sel and sel.cells else None)
+if row is not None and row < len(view):
+    p = view.iloc[row]
     detail = stats.player_weekly_detail(data, p.player_id)
     nfl_team = p.nfl_team if isinstance(p.nfl_team, str) else "no NFL team"
-    st.subheader(f"{p['name']} · {p.pos} · {nfl_team}")
+    st.subheader(f"{p['name']} · {p.pos} · {nfl_team}", anchor="player-detail")
+    if st.session_state.get("players_scrolled_to") != p.player_id:
+        # Scroll down to the detail once per newly picked player
+        st.session_state["players_scrolled_to"] = p.player_id
+        st.iframe(
+            "<script>setTimeout(() => window.parent.document.getElementById("
+            "'player-detail')?.scrollIntoView({behavior: 'smooth', block: 'start'}), 300)"
+            f"</script><!-- {p.player_id} -->",
+            height=1,
+        )
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Games played", int(p.games))
     m2.metric("Points per game", f"{p.avg:.2f}" if p.avg == p.avg else "–")
