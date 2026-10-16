@@ -104,9 +104,9 @@ if not proj.empty and week:
         f"Proj W{week[0]}", format="%.1f",
         help="Sleeper projection for this week, in this league's scoring")
     column_config["proj_ros"] = st.column_config.NumberColumn(
-        "Proj ROS", format="%.1f",
-        help=f"Sleeper projection for the rest of the regular season "
-             f"(weeks {week[0]}–{data.last_regular_week}), in this league's scoring")
+        "Proj ROS avg", format="%.1f",
+        help=f"Sleeper projection per game for the rest of the regular season "
+             f"(weeks {week[0]}–{data.last_regular_week}, byes excluded), this league's scoring")
 
 if private.is_unlocked():
     fp, unmatched = projections.fantasypros(data, private.fantasypros_key())

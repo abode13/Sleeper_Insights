@@ -35,8 +35,9 @@ def _league_points(s: dict, scoring: dict) -> float:
 
 
 def sleeper_projections(data: LeagueData) -> pd.DataFrame:
-    """player_id, proj_week (this week, league scoring), proj_ros (this week to end of
-    regular season). Empty if Sleeper's projections are unavailable."""
+    """player_id, proj_week (this week, league scoring), proj_ros (average per projected game
+    from this week to the end of the regular season; byes don't count as games).
+    Empty if Sleeper's projections are unavailable."""
     weeks = projection_weeks(data)
     cols = ["player_id", "proj_week", "proj_ros"]
     if not weeks or not data.scoring:
@@ -51,7 +52,8 @@ def sleeper_projections(data: LeagueData) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=cols)
     this_week = df[df.week == weeks[0]].set_index("player_id").pts
-    ros = df[df.week <= data.last_regular_week].groupby("player_id").pts.sum()
+    # Only weeks with a projected game are in the data (projections are filtered on gp)
+    ros = df[df.week <= data.last_regular_week].groupby("player_id").pts.mean()
     out = pd.DataFrame({"proj_week": this_week, "proj_ros": ros}).rename_axis("player_id")
     return out.reset_index()
 

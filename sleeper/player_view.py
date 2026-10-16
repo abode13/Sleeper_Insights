@@ -50,8 +50,9 @@ def _projections(data: LeagueData, pid: str):
         on_bye = data.byes.get(data.player(pid)["team"]) == weeks[0]
         c1.metric(f"Proj W{weeks[0]}", "Bye" if on_bye else f"{wk:.1f}" if wk is not None
                   else "–", help="Sleeper projection in this league's scoring")
-        c2.metric("Proj rest of season", f"{ros:.1f}" if ros is not None else "–",
-                  help=f"Sleeper projection, weeks {weeks[0]}–{data.last_regular_week}")
+        c2.metric("Proj ROS avg", f"{ros:.1f}" if ros is not None else "–",
+                  help=f"Sleeper projection per game, weeks {weeks[0]}–"
+                       f"{data.last_regular_week} (byes excluded)")
         if not unlocked:
             return
         if fp.empty:
