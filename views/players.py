@@ -50,8 +50,9 @@ if team:
     view = view[view.fantasy_team.isin(team)]
 view = view[view.games >= min_games].reset_index(drop=True)
 
-cols = ["name", "pos", "nfl_team", "fantasy_team", "total", "games", "avg", "started",
-        "started_pts"]
+# Order: player info, season points, projections (inserted after Avg below), NFL stats,
+# then league starts at the far right
+cols = ["name", "pos", "nfl_team", "fantasy_team", "total", "games", "avg"]
 column_config = {
     # Pinned so names stay visible when scrolling right to the stat columns
     "name": st.column_config.TextColumn("Player", pinned=True),
@@ -136,6 +137,7 @@ if private.is_unlocked():
 
 i = cols.index("avg") + 1
 cols[i:i] = extra
+cols += ["started", "started_pts"]
 
 numeric_cols = [c for c in cols if c not in (
     "name", "pos", "nfl_team", "fantasy_team", "fp_pos_rank", "fp_ros_pos_rank")]
