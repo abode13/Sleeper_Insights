@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from sleeper import statcols
 from sleeper.model import LeagueData
 
 # Lineup slot -> positions that may fill it
@@ -190,6 +191,49 @@ def games_played(data: LeagueData) -> pd.Series:
     if not data.has_nfl_stats:
         return pd.Series(dtype=int)
     return ps[ps.played & (ps.week < data.current_week)].groupby("player_id").size()
+
+
+def player_season_stats(data: LeagueData, keys: list[str], per_game: bool) -> pd.DataFrame:
+    """NFL stat lines per player over the completed weeks (games actually played)."""
+    ps = data.player_stats
+    ps = ps[ps.played & (ps.week < data.current_week)]
+    g = ps.groupby("player_id")
+    out = pd.DataFrame(index=g.size().index)
+    games = g.size()
+    for k in keys:
+        if k in statcols.SEASON_MAX:
+            out[k] = g[k].max()
+        elif per_game or k in statcols.ALWAYS_PER_GAME:
+            out[k] = g[k].sum() / games
+        else:
+            out[k] = g[k].sum()
+    return out
+
+
+def player_weekly_detail(data: LeagueData, pid: str) -> pd.DataFrame:
+    """One player's weeks: league points, whether he played, fantasy team, NFL stats."""
+    pos = data.player(pid)["pos"]
+    keys = statcols.BY_POSITION.get(pos, statcols.MIXED)
+    weeks = range(1, data.current_week if data.current_week < 99 else 19)
+    df = pd.DataFrame({"week": list(weeks)})
+    pw = data.player_weeks[data.player_weeks.player_id == pid].set_index("week")
+    df["fantasy_team"] = df.week.map(pw.roster_id).map(data.names)
+    df["started"] = df.week.map(pw.is_starter)
+    if data.has_nfl_stats:
+        ps = data.player_stats[data.player_stats.player_id == pid].set_index("week")
+        df["played"] = df.week.map(ps.played).fillna(False).astype(bool)
+        df["points"] = df.week.map(ps.points)
+        for k in keys:
+            df[k] = df.week.map(ps[k])
+        df.loc[~df.played, ["points"] + keys] = float("nan")
+    else:
+        df["played"] = df.week.map(pw.points).fillna(0) != 0
+        df["points"] = df.week.map(pw.points)
+    bye = data.byes.get(data.player(pid)["team"])
+    df["note"] = ""
+    df.loc[df.week == bye, "note"] = "Bye"
+    df.loc[(df.note == "") & ~df.played, "note"] = "Did not play"
+    return df
 
 
 def player_summary(data: LeagueData) -> pd.DataFrame:

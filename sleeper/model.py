@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 import streamlit as st
 
-from sleeper import api, schedule
+from sleeper import api, schedule, statcols
 
 AVATAR_URL = "https://sleepercdn.com/avatars/thumbs/{}"
 
@@ -94,19 +94,21 @@ def _player_stats(season: int, current_week: int, scoring_settings: dict) -> pd.
     """
     scoring = {k: float(v) for k, v in scoring_settings.items() if v}
     weeks = tuple(range(1, min(current_week, 19)))
-    columns = ["week", "player_id", "points", "played"]
+    columns = ["week", "player_id", "points", "played"] + statcols.ALL
     if not scoring or not weeks:
         return pd.DataFrame(columns=columns)
     try:
-        weekly = api.weekly_stats(season, weeks, tuple(sorted(scoring)))
+        weekly = api.weekly_stats(season, weeks, tuple(sorted(set(scoring) | set(statcols.ALL))))
     except Exception:
         return pd.DataFrame(columns=columns)
     rows = [
         (week, pid, round(sum(float(s.get(k) or 0) * v for k, v in scoring.items()), 2),
-         float(s.get("gp") or 0) > 0)
+         float(s.get("gp") or 0) > 0, *(float(s.get(k) or 0) for k in statcols.ALL))
         for week, stats in weekly.items() for pid, s in stats.items()
     ]
-    return pd.DataFrame(rows, columns=columns)
+    df = pd.DataFrame(rows, columns=columns)
+    df[statcols.ALL] = df[statcols.ALL].astype("float32")  # ~40k rows by season's end
+    return df
 
 
 def _divisions(lg: dict) -> dict[int, dict]:
