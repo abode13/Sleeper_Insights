@@ -35,4 +35,4 @@ Without a configured ID, the app asks for one, or you can open it with `?league=
 - `sleeper/schedule.py`: NFL bye weeks from the nflverse schedule
 - `sleeper/model.py`: builds the DataFrames (teams, team-weeks, player-weeks, schedule)
 - `sleeper/stats.py`: standings, all-play, best possible lineup, player stats, bye luck
-- `pages/`: one file per dashboard page
+- `views/`: one file per dashboard page (not named `pages/`, which Streamlit would treat as its legacy page list)

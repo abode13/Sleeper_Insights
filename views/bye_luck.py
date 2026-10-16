@@ -33,34 +33,71 @@ if weekly.empty:
     st.stop()
 
 summary = stats.bye_luck_summary(weekly)
-for col in ("played_net", "remaining_net"):
-    if col not in summary:
-        summary[col] = 0.0
+for part in ("played", "remaining"):
+    for col in ("own_count", "own_impact", "opp_count", "opp_impact", "net"):
+        if f"{part}_{col}" not in summary:
+            summary[f"{part}_{col}"] = 0.0
+summary["total_own_impact"] = summary.played_own_impact + summary.remaining_own_impact
+summary["total_opp_impact"] = summary.played_opp_impact + summary.remaining_opp_impact
 summary["total_net"] = summary.played_net + summary.remaining_net
 summary = summary.sort_values("total_net", ascending=False)
 
-impact_fmt = st.column_config.NumberColumn(format="%.1f")
-net_fmt = st.column_config.NumberColumn(format="%+.1f")
-show = {
-    "team": "Team",
-    "played_own_count": "Your byes (played)", "played_own_impact": "You lost (played)",
-    "played_opp_count": "Opp byes (played)", "played_opp_impact": "Opp lost (played)",
-    "played_net": "Net (played)",
-    "remaining_own_count": "Your byes (rest)", "remaining_own_impact": "You lost (rest)",
-    "remaining_opp_count": "Opp byes (rest)", "remaining_opp_impact": "Opp lost (rest)",
-    "remaining_net": "Net (rest)",
-    "total_net": "Net (season)",
-}
-cols = [c for c in show if c in summary]
+PERIODS = {"played": ("P", "weeks played"), "remaining": ("R", "rest of season, projected"),
+           "total": ("S", "whole season: played + rest")}
+# column -> (short header, hover text, format)
+show = {"team": ("Team", None, None)}
+for part, (tag, period) in PERIODS.items():
+    if part != "total":
+        show[f"{part}_own_count"] = (f"Own # {tag}", f"Your players on bye ({period})", "%d")
+    show[f"{part}_own_impact"] = (f"Own {tag}", f"Points your lineup lost to byes ({period})",
+                                  "%.1f")
+    if part != "total":
+        show[f"{part}_opp_count"] = (f"Opp # {tag}",
+                                     f"Your opponents' players on bye ({period})", "%d")
+    show[f"{part}_opp_impact"] = (f"Opp {tag}",
+                                  f"Points your opponents lost to byes ({period})", "%.1f")
+    show[f"{part}_net"] = (f"Net {tag}", f"Opp lost − own lost ({period}). Positive = lucky",
+                           "%+.1f")
+cols = list(show)
+
 st.subheader("Season overview")
-st.caption("*Byes* = number of players on bye · *lost* = points the best lineup lost to those "
-           "byes · *rest* = remaining regular-season weeks (projected).")
+st.caption("**P** = weeks played · **R** = rest of season (projected) · **S** = whole season. "
+           "**#** = players on bye, otherwise points lost. Hover a header for details.")
 st.dataframe(
-    summary[cols].rename(columns=show), hide_index=True, width="stretch",
-    height=35 * (len(summary) + 1) + 3,
+    summary[cols].rename(columns={c: v[0] for c, v in show.items()}),
+    hide_index=True, width="stretch", height=35 * (len(summary) + 1) + 3,
     column_config={
-        **{show[c]: impact_fmt for c in cols if c.endswith("impact")},
-        **{show[c]: net_fmt for c in cols if c.endswith("net")},
+        label: st.column_config.NumberColumn(label, help=help_, format=fmt)
+        for c, (label, help_, fmt) in show.items() if fmt
+    },
+)
+
+# -- Breakdown: why teams lose what they lose -----------------------------------------
+st.subheader("Why some teams lose more")
+st.caption("Your own byes over the whole season. Losses grow with **better starters** on bye, "
+           "**stacked** byes (many starters out in one week) and a **thin bench**.")
+breakdown = stats.bye_breakdown(weekly)
+st.dataframe(
+    breakdown[["team", "starters", "worst_week", "starter_value", "no_bench", "lost",
+               "bench_saved"]],
+    hide_index=True, width="stretch", height=35 * (len(breakdown) + 1) + 3,
+    column_config={
+        "team": "Team",
+        "starters": st.column_config.NumberColumn(
+            "Starters", help="Starters on bye over the whole season"),
+        "worst_week": st.column_config.NumberColumn(
+            "Max/wk", help="Most starters on bye in a single week (stacked byes)"),
+        "starter_value": st.column_config.NumberColumn(
+            "Value", format="%.1f",
+            help="Combined points per game of those starters — how good they are"),
+        "no_bench": st.column_config.NumberColumn(
+            "No bench", format="%.1f",
+            help="Points lost if every starter on bye were replaced by a waiver pickup"),
+        "lost": st.column_config.NumberColumn(
+            "Lost", format="%.1f", help="Points actually lost, using your bench too"),
+        "bench_saved": st.column_config.NumberColumn(
+            "Bench saved", format="%.1f",
+            help="How much your own backups cut the loss (No bench − Lost)"),
     },
 )
 

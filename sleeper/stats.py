@@ -226,9 +226,9 @@ def bye_luck(data: LeagueData) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     values = player_values(data)
     slots = starting_slots(data)
+    repl = replacement_values(data, values)
     # Enough virtual waiver players per position to fill every slot if needed
-    waiver = [(f"waiver:{pos}:{i}", [pos], v)
-              for pos, v in replacement_values(data, values).items()
+    waiver = [(f"waiver:{pos}:{i}", [pos], v) for pos, v in repl.items()
               for i in range(len(slots))]
 
     def roster(week, rid):
@@ -245,13 +245,20 @@ def bye_luck(data: LeagueData) -> tuple[pd.DataFrame, pd.DataFrame]:
             on_bye = [p for p in pids if data.byes.get(data.player(p)["team"]) == week]
             cands = [(p, data.player(p)["fantasy_positions"], float(values.get(p, 0.0)))
                      for p in pids] + waiver
-            full, _ = optimal_lineup(cands, slots)
+            full, starters = optimal_lineup(cands, slots)
             without, _ = optimal_lineup([c for c in cands if c[0] not in on_bye], slots)
+            bye_starters = [p for p in on_bye if p in starters]
             cache[key] = {
                 "count": len(on_bye),
                 "value": sum(float(values.get(p, 0.0)) for p in on_bye),
                 "impact": full - without,
                 "players": on_bye,
+                # For the breakdown: starters lost, and the loss if only waivers could fill in
+                "starters": len(bye_starters),
+                "starter_value": sum(float(values.get(p, 0.0)) for p in bye_starters),
+                "no_bench": sum(max(float(values.get(p, 0.0))
+                                    - repl.get(data.player(p)["pos"], 0.0), 0.0)
+                                for p in bye_starters),
             }
         return cache[key]
 
@@ -270,6 +277,8 @@ def bye_luck(data: LeagueData) -> tuple[pd.DataFrame, pd.DataFrame]:
             "opp_count": other["count"], "opp_value": other["value"],
             "opp_impact": other["impact"],
             "net": other["impact"] - own["impact"],
+            "own_starters": own["starters"], "own_starter_value": own["starter_value"],
+            "own_no_bench": own["no_bench"],
         })
     for (week, rid), v in cache.items():
         for p in v["players"]:
@@ -280,7 +289,8 @@ def bye_luck(data: LeagueData) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     weekly = pd.DataFrame(rows, columns=[
         "week", "roster_id", "opp_roster_id", "played", "own_count", "own_value", "own_impact",
-        "opp_count", "opp_value", "opp_impact", "net"])
+        "opp_count", "opp_value", "opp_impact", "net",
+        "own_starters", "own_starter_value", "own_no_bench"])
     weekly["team"] = weekly.roster_id.map(data.names)
     weekly["opponent"] = weekly.opp_roster_id.map(data.names)
     detail = pd.DataFrame(detail, columns=["week", "roster_id", "player_id", "name", "pos",
@@ -296,3 +306,19 @@ def bye_luck_summary(weekly: pd.DataFrame) -> pd.DataFrame:
         g = weekly[weekly.played == played].groupby(["roster_id", "team"])[cols].sum()
         parts.append(g.add_prefix(f"{label}_"))
     return pd.concat(parts, axis=1).fillna(0).reset_index()
+
+def bye_breakdown(weekly: pd.DataFrame) -> pd.DataFrame:
+    """Why each team loses what it does to its own byes (whole regular season).
+
+    loss without bench = starters on bye replaced by waiver players only;
+    bench saved = how much the team's own backups cut that down.
+    """
+    g = weekly.groupby(["roster_id", "team"]).agg(
+        starters=("own_starters", "sum"),
+        worst_week=("own_starters", "max"),
+        starter_value=("own_starter_value", "sum"),
+        no_bench=("own_no_bench", "sum"),
+        lost=("own_impact", "sum"),
+    ).reset_index()
+    g["bench_saved"] = g.no_bench - g.lost
+    return g.sort_values("lost", ascending=False).reset_index(drop=True)

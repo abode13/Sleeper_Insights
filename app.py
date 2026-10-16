@@ -59,10 +59,10 @@ with st.sidebar:
         st.rerun()
 
 pages = [
-    st.Page("pages/standings.py", title="Standings", icon="🏆", default=True),
-    st.Page("pages/weekly.py", title="Weekly", icon="📅"),
-    st.Page("pages/teams.py", title="Teams", icon="👥"),
-    st.Page("pages/players.py", title="Players", icon="🏃"),
-    st.Page("pages/bye_luck.py", title="Bye luck", icon="🍀"),
+    st.Page("views/standings.py", title="Standings", icon="🏆", default=True),
+    st.Page("views/weekly.py", title="Weekly", icon="📅"),
+    st.Page("views/teams.py", title="Teams", icon="👥"),
+    st.Page("views/players.py", title="Players", icon="🏃"),
+    st.Page("views/bye_luck.py", title="Bye luck", icon="🍀"),
 ]
 st.navigation(pages).run()
