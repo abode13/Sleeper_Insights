@@ -1,3 +1,4 @@
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -100,11 +101,11 @@ if not proj.empty and week:
     on_bye = view.nfl_team.map(data.byes) == week[0]
     view.loc[on_bye & view.proj_week.isna(), "proj_week"] = 0.0
     extra += ["proj_week", "proj_ros"]
-    column_config["proj_week"] = st.column_config.NumberColumn(
-        f"Proj W{week[0]}", format="%.1f",
+    column_config["proj_week"] = st.column_config.Column(
+        f"Proj W{week[0]}",
         help="Sleeper projection for this week, in this league's scoring")
-    column_config["proj_ros"] = st.column_config.NumberColumn(
-        "Proj ROS avg", format="%.1f",
+    column_config["proj_ros"] = st.column_config.Column(
+        "Proj ROS avg",
         help=f"Sleeper projection per game for the rest of the regular season "
              f"(weeks {week[0]}–{data.last_regular_week}, byes excluded), this league's scoring")
 
@@ -112,19 +113,24 @@ if private.is_unlocked():
     fp, unmatched = projections.fantasypros(data, private.fantasypros_key())
     if not fp.empty:
         view = view.merge(fp, on="player_id", how="left")
+        # Position ranks as numbers ("WR12" -> 12; the position is in the Pos column)
+        for c in ("fp_pos_rank", "fp_ros_pos_rank"):
+            view[c] = pd.to_numeric(view[c].astype("string").str.extract(r"(\d+)")[0],
+                                    errors="coerce")
         extra += ["fp_ecr", "fp_pos_rank", "fp_proj", "fp_ros_ecr", "fp_ros_pos_rank"]
-        column_config["fp_ecr"] = st.column_config.NumberColumn(
-            f"🔒 ECR W{week[0]}", format="%d",
-            help="Private · FantasyPros expert consensus rank, this week (half PPR)")
-        column_config["fp_pos_rank"] = st.column_config.TextColumn(
+        # Generic Column so the Styler formatting below (blank for unranked) is used
+        column_config["fp_ecr"] = st.column_config.Column(
+            f"🔒 ECR W{week[0]}",
+            help="Private · FantasyPros overall consensus rank, this week (half PPR)")
+        column_config["fp_pos_rank"] = st.column_config.Column(
             f"🔒 Pos W{week[0]}", help="Private · FantasyPros position rank, this week")
-        column_config["fp_proj"] = st.column_config.NumberColumn(
-            f"🔒 FP W{week[0]}", format="%.1f",
+        column_config["fp_proj"] = st.column_config.Column(
+            f"🔒 FP W{week[0]}",
             help="Private · FantasyPros projection, this week (half PPR)")
-        column_config["fp_ros_ecr"] = st.column_config.NumberColumn(
-            "🔒 ECR ROS", format="%d",
-            help="Private · FantasyPros expert consensus rank, rest of season (half PPR)")
-        column_config["fp_ros_pos_rank"] = st.column_config.TextColumn(
+        column_config["fp_ros_ecr"] = st.column_config.Column(
+            "🔒 ECR ROS",
+            help="Private · FantasyPros overall consensus rank, rest of season (half PPR)")
+        column_config["fp_ros_pos_rank"] = st.column_config.Column(
             "🔒 Pos ROS", help="Private · FantasyPros position rank, rest of season")
     if fp.empty:
         st.caption("🔒 FantasyPros: add `FANTASYPROS_API_KEY` to secrets to show ECR & "
@@ -139,16 +145,30 @@ i = cols.index("avg") + 1
 cols[i:i] = extra
 cols += ["started", "started_pts"]
 
-numeric_cols = [c for c in cols if c not in (
-    "name", "pos", "nfl_team", "fantasy_team", "fp_pos_rank", "fp_ros_pos_rank")]
+numeric_cols = [c for c in cols if c not in ("name", "pos", "nfl_team", "fantasy_team")]
+# Unranked players get a high placeholder rank so they sort after ranked ones (Streamlit
+# always sorts empty cells first); the Styler shows the placeholder as a blank cell.
+RANK_COLS = [c for c in ("fp_ecr", "fp_pos_rank", "fp_ros_ecr", "fp_ros_pos_rank") if c in cols]
+UNRANKED = 999
+# Projected points: missing -> -1, which sorts last when sorting high to low
+POINT_COLS = [c for c in ("proj_week", "proj_ros", "fp_proj") if c in cols]
+NO_PROJECTION = -1
+shade_values = view[cols].copy()  # real values (NaN = missing) for the color scale
+table = view[cols].copy()
+table[RANK_COLS] = table[RANK_COLS].fillna(UNRANKED)
+table[POINT_COLS] = table[POINT_COLS].fillna(NO_PROJECTION)
+styled = theme.shade(
+    table, numeric_cols, values=shade_values,
+    lower_is_better=statcols.lower_is_better(numeric_cols, data.scoring) + RANK_COLS,
+    # Only shade stats that belong to the player's position (no red 0 pass yards for RBs)
+    relevant={k: view.pos.map(lambda p, k=k: k in statcols.BY_POSITION.get(
+        p, statcols.MIXED)) for k in numeric_cols if k in statcols.ALL},
+).format({
+    **{c: lambda v: "" if v >= UNRANKED else f"{v:.0f}" for c in RANK_COLS},
+    **{c: lambda v: "" if v <= NO_PROJECTION else f"{v:.1f}" for c in POINT_COLS},
+})
 event = st.dataframe(
-    theme.shade(view[cols], numeric_cols,
-                lower_is_better=statcols.lower_is_better(numeric_cols, data.scoring)
-                + ["fp_ecr", "fp_ros_ecr"],
-                # Only shade stats that belong to the player's position (no red 0 pass
-                # yards for running backs)
-                relevant={k: view.pos.map(lambda p, k=k: k in statcols.BY_POSITION.get(
-                    p, statcols.MIXED)) for k in numeric_cols if k in statcols.ALL}),
+    styled,
     hide_index=True, width="stretch",
     height=min(420, 35 * (len(view) + 1) + 3),
     column_config=column_config,
