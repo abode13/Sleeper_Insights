@@ -1,7 +1,7 @@
 import plotly.graph_objects as go
 import streamlit as st
 
-from sleeper import player_view, statcols, stats, theme
+from sleeper import player_view, private, projections, statcols, stats, theme
 
 data = st.session_state["data"]
 st.title("Players")
@@ -89,10 +89,60 @@ if data.has_nfl_stats:
             st.caption("Pick a single position above for its full set of stats "
                        "(e.g. kicking or defense).")
 
-numeric_cols = [c for c in cols if c not in ("name", "pos", "nfl_team", "fantasy_team")]
+# -- Projections: Sleeper for everyone, FantasyPros only when unlocked --------------------
+week = projections.projection_weeks(data)
+extra = []
+proj = projections.sleeper_projections(data)
+if not proj.empty and week:
+    view = view.merge(proj, on="player_id", how="left")
+    # Players on bye this week are projected 0, not missing
+    on_bye = view.nfl_team.map(data.byes) == week[0]
+    view.loc[on_bye & view.proj_week.isna(), "proj_week"] = 0.0
+    extra += ["proj_week", "proj_ros"]
+    column_config["proj_week"] = st.column_config.NumberColumn(
+        f"Proj W{week[0]}", format="%.1f",
+        help="Sleeper projection for this week, in this league's scoring")
+    column_config["proj_ros"] = st.column_config.NumberColumn(
+        "Proj ROS", format="%.1f",
+        help=f"Sleeper projection for the rest of the regular season "
+             f"(weeks {week[0]}–{data.last_regular_week}), in this league's scoring")
+
+if private.is_unlocked():
+    fp, unmatched = projections.fantasypros(data, private.fantasypros_key())
+    if not fp.empty:
+        view = view.merge(fp, on="player_id", how="left")
+        extra += ["fp_ecr", "fp_pos_rank", "fp_proj", "fp_ros_ecr", "fp_ros_pos_rank"]
+        column_config["fp_ecr"] = st.column_config.NumberColumn(
+            f"🔒 ECR W{week[0]}", format="%d",
+            help="Private · FantasyPros expert consensus rank, this week (half PPR)")
+        column_config["fp_pos_rank"] = st.column_config.TextColumn(
+            f"🔒 Pos W{week[0]}", help="Private · FantasyPros position rank, this week")
+        column_config["fp_proj"] = st.column_config.NumberColumn(
+            f"🔒 FP W{week[0]}", format="%.1f",
+            help="Private · FantasyPros projection, this week (half PPR)")
+        column_config["fp_ros_ecr"] = st.column_config.NumberColumn(
+            "🔒 ECR ROS", format="%d",
+            help="Private · FantasyPros expert consensus rank, rest of season (half PPR)")
+        column_config["fp_ros_pos_rank"] = st.column_config.TextColumn(
+            "🔒 Pos ROS", help="Private · FantasyPros position rank, rest of season")
+    if fp.empty:
+        st.caption("🔒 FantasyPros: add `FANTASYPROS_API_KEY` to secrets to show ECR & "
+                   "FantasyPros projections (only visible to you).")
+    else:
+        note = "🔒 columns are only visible to you. Rankings & projections: FantasyPros."
+        if unmatched:
+            note += f" {len(unmatched)} FantasyPros players couldn't be matched."
+        st.caption(note)
+
+i = cols.index("avg") + 1
+cols[i:i] = extra
+
+numeric_cols = [c for c in cols if c not in (
+    "name", "pos", "nfl_team", "fantasy_team", "fp_pos_rank", "fp_ros_pos_rank")]
 event = st.dataframe(
     theme.shade(view[cols], numeric_cols,
-                lower_is_better=statcols.lower_is_better(numeric_cols, data.scoring),
+                lower_is_better=statcols.lower_is_better(numeric_cols, data.scoring)
+                + ["fp_ecr", "fp_ros_ecr"],
                 # Only shade stats that belong to the player's position (no red 0 pass
                 # yards for running backs)
                 relevant={k: view.pos.map(lambda p, k=k: k in statcols.BY_POSITION.get(

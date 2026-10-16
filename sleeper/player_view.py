@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sleeper import statcols, stats, theme
+from sleeper import private, projections, statcols, stats, theme
 from sleeper.model import LeagueData
 
 RESET_KEY = "player_tables_reset"
@@ -28,6 +28,52 @@ def _reset_tables():
     st.session_state[RESET_KEY] = st.session_state.get(RESET_KEY, 0) + 1
 
 
+def _projections(data: LeagueData, pid: str):
+    """Projections row: Sleeper for everyone, FantasyPros only when unlocked."""
+    weeks = projections.projection_weeks(data)
+    if not weeks:
+        return
+    proj = projections.sleeper_projections(data).set_index("player_id")
+    unlocked = private.is_unlocked()
+    fp = (projections.fantasypros(data, private.fantasypros_key())[0] if unlocked
+          else pd.DataFrame(columns=["player_id"])).set_index("player_id")
+
+    def get(frame, col):
+        v = frame[col].get(pid) if col in frame else None
+        return None if v is None or pd.isna(v) else v
+
+    with st.container(border=True):
+        st.caption(f"Projections · week {weeks[0]} and rest of season (Sleeper, this "
+                   "league's scoring)")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        wk, ros = get(proj, "proj_week"), get(proj, "proj_ros")
+        on_bye = data.byes.get(data.player(pid)["team"]) == weeks[0]
+        c1.metric(f"Proj W{weeks[0]}", "Bye" if on_bye else f"{wk:.1f}" if wk is not None
+                  else "–", help="Sleeper projection in this league's scoring")
+        c2.metric("Proj rest of season", f"{ros:.1f}" if ros is not None else "–",
+                  help=f"Sleeper projection, weeks {weeks[0]}–{data.last_regular_week}")
+        if not unlocked:
+            return
+        if fp.empty:
+            c3.caption("🔒 FantasyPros rankings appear once `FANTASYPROS_API_KEY` is set.")
+            return
+        def rank(ecr_col, pos_col):
+            ecr, pos_rank = get(fp, ecr_col), get(fp, pos_col)
+            if ecr is None and not pos_rank:
+                return "–"
+            return " · ".join(x for x in (f"#{ecr:.0f}" if ecr is not None else "",
+                                          pos_rank or "") if x)
+
+        fp_pts = get(fp, "fp_proj")
+        c3.metric(f"🔒 FP proj W{weeks[0]}", f"{fp_pts:.1f}" if fp_pts is not None else "–",
+                  help="Private · FantasyPros projection, this week (half PPR)")
+        c4.metric(f"🔒 ECR W{weeks[0]}", rank("fp_ecr", "fp_pos_rank"),
+                  help="Private · FantasyPros consensus rank · position rank, this week")
+        c5.metric("🔒 ECR ROS", rank("fp_ros_ecr", "fp_ros_pos_rank"),
+                  help="Private · FantasyPros consensus rank · position rank, rest of season")
+        st.caption("🔒 only visible to you · Rankings & projections: FantasyPros.")
+
+
 @st.dialog("Player", width="large", on_dismiss=_reset_tables)
 def show_player(data: LeagueData, pid: str):
     info = data.player(pid)
@@ -44,6 +90,7 @@ def show_player(data: LeagueData, pid: str):
     m3.metric("Fantasy team now", data.team_name(owner) if owner else "Free agent")
     m4.metric("Points on league rosters", f"{on_rosters:.1f}",
               help="Points scored while on any roster in this league, bench included")
+    _projections(data, pid)
 
     fig = go.Figure(go.Bar(
         x=played.week, y=played.points, marker_color=theme.HIGHLIGHT,

@@ -3,7 +3,7 @@ import os
 import streamlit as st
 
 import sleeper.theme  # noqa: F401  (registers the plotly template)
-from sleeper import api
+from sleeper import api, private
 from sleeper.model import load_league
 
 st.set_page_config(page_title="Sleeper League Dashboard", page_icon="🏈", layout="wide")
@@ -56,9 +56,10 @@ with st.sidebar:
     if st.button("Refresh data", width="stretch"):
         # Keep the 24h player database cache; Sleeper asks not to refetch it often
         for fn in (load_league, api.nfl_state, api.league, api.users, api.rosters,
-                   api.matchups_many, api.weekly_stats):
+                   api.matchups_many, api.weekly_stats, api.projections, api.fantasypros):
             fn.clear()
         st.rerun()
+    private.unlock_widget()
 
 pages = [
     st.Page("views/standings.py", title="Standings", icon="🏆", default=True),

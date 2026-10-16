@@ -65,6 +65,39 @@ def weekly_stats(season: int, weeks: tuple[int, ...],
         return dict(zip(weeks, pool.map(fetch, weeks)))
 
 
+@st.cache_data(ttl=3600, show_spinner="Loading projections…")
+def projections(season: int, weeks: tuple[int, ...],
+                stat_keys: tuple[str, ...]) -> dict[int, dict[str, dict]]:
+    """Sleeper's projected stats per player per week (undocumented; callers handle errors)."""
+    keep = set(stat_keys) | {"gp", "pts_half_ppr", "fgm_yds"}
+
+    def fetch(week):
+        raw = _get(f"/projections/nfl/regular/{season}/{week}") or {}
+        return {pid: {k: v for k, v in s.items() if k in keep}
+                for pid, s in raw.items() if isinstance(s, dict) and s.get("gp")}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(weeks, pool.map(fetch, weeks)))
+
+
+FANTASYPROS = "https://api.fantasypros.com/public/v2/json/nfl"
+
+
+@st.cache_data(ttl=10800, show_spinner="Loading FantasyPros…")
+def fantasypros(kind: str, season: int, params: tuple, api_key: str) -> dict:
+    """FantasyPros public API (personal-use key). kind: 'consensus-rankings' or 'projections'.
+
+    Returns {} on any failure so a missing/invalid key never breaks the page.
+    """
+    try:
+        resp = _session.get(f"{FANTASYPROS}/{season}/{kind}", params=dict(params),
+                            headers={"x-api-key": api_key}, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=86400, show_spinner="Loading NFL player database…")
 def players() -> dict[str, dict]:
     """All NFL players, slimmed down to the fields we use.
