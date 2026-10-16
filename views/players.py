@@ -1,3 +1,4 @@
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -18,7 +19,8 @@ if summary.empty:
     st.info("No completed weeks yet.")
     st.stop()
 
-f1, f2, f3 = st.columns([2, 3, 1])
+f0, f1, f2, f3 = st.columns([2, 2, 3, 1])
+search = f0.text_input("Search", placeholder="Player name…")
 positions = sorted(summary.pos.dropna().unique())
 pos = f1.multiselect("Position", positions, placeholder="All positions")
 teams = sorted(summary.fantasy_team.unique())
@@ -26,6 +28,8 @@ team = f2.multiselect("Fantasy team", teams, placeholder="All teams")
 min_games = f3.number_input("Min games", 0, 18, 1)
 
 view = summary
+if search.strip():
+    view = view[view.name.str.contains(search.strip(), case=False, regex=False, na=False)]
 if pos:
     view = view[view.pos.isin(pos)]
 if team:
@@ -59,7 +63,7 @@ if data.has_nfl_stats:
         for k in keys:
             whole = (k in statcols.SEASON_MAX
                      or not (per_game or k in statcols.ALWAYS_PER_GAME))
-            label = statcols.LABELS[k] + ("/g" if k in statcols.ALWAYS_PER_GAME else "")
+            label = statcols.label(k) + ("/g" if k in statcols.ALWAYS_PER_GAME else "")
             column_config[k] = st.column_config.NumberColumn(
                 label, format="%d" if whole else "%.1f")
         if len(pos) != 1:
@@ -67,7 +71,8 @@ if data.has_nfl_stats:
                        "(e.g. kicking or defense).")
 
 event = st.dataframe(
-    view[cols], hide_index=True, width="stretch", height=420, column_config=column_config,
+    view[cols], hide_index=True, width="stretch", height=min(420, 35 * (len(view) + 1) + 3),
+    column_config=column_config,
     # Cell selection (no row checkboxes): clicking anywhere in a row picks that player
     on_select="rerun", selection_mode="single-cell", key="players_table",
 )
@@ -105,18 +110,31 @@ if row is not None and row < len(view):
                       bargap=0.35, margin=dict(t=20))
     st.plotly_chart(fig, width="stretch")
 
-    keys = [k for k in statcols.BY_POSITION.get(p.pos, statcols.MIXED) if k in detail]
-    show = ["week", "note", "fantasy_team", "started", "points"] + keys
+    base = ["week", "note", "fantasy_team", "started", "points"]
+    keys = [c for c in detail.columns if c not in base and c != "played"]
+
+    def stat_column(k):
+        pts = data.scoring.get(k)
+        return st.column_config.TextColumn(
+            statcols.label(k), alignment="right",
+            help=f"Scored in this league: {pts:+g} pts each" if pts else "Not scored")
+
+    # Pre-formatted text so missed weeks show blank cells (number columns would say "None")
+    table = detail[base + keys].copy()
+    for k in ["points"] + keys:
+        fmt = "{:.2f}" if k == "points" else (
+            "{:.0f}" if (table[k].dropna() % 1 == 0).all() else "{:.1f}")
+        table[k] = table[k].map(lambda v, f=fmt: "" if pd.isna(v) else f.format(v))
     st.dataframe(
-        detail[show], hide_index=True, width="stretch",
+        table, hide_index=True, width="stretch",
         column_config={
             "week": "Week", "note": "", "fantasy_team": "Fantasy team",
             "started": st.column_config.CheckboxColumn("Started"),
-            "points": st.column_config.NumberColumn("Points", format="%.2f"),
-            **{k: st.column_config.NumberColumn(statcols.LABELS[k], format="%d")
-               for k in keys},
+            "points": st.column_config.TextColumn("Points", alignment="right"),
+            **{k: stat_column(k) for k in keys},
         },
     )
+    st.caption("Hover a stat's header to see how many points it's worth in this league.")
 
 st.subheader("Weekly points — top players")
 n = st.slider("Players shown", 10, 50, 25, step=5)
@@ -132,7 +150,7 @@ fig = go.Figure(go.Heatmap(
     xgap=2, ygap=2, colorbar=dict(title="Pts", thickness=12),
     hovertemplate="%{y}<br>%{x}: %{z:.2f} pts<extra></extra>",
 ))
-fig.update_layout(height=max(300, 24 * len(labels) + 80), yaxis=dict(autorange="reversed"),
+fig.update_layout(height=max(160, 24 * len(labels) + 80), yaxis=dict(autorange="reversed"),
                   plot_bgcolor=theme.SURFACE)
 st.plotly_chart(fig, width="stretch")
 st.caption("Blank cells: not on a fantasy roster that week, or a bye.")

@@ -221,6 +221,11 @@ def player_weekly_detail(data: LeagueData, pid: str) -> pd.DataFrame:
     df["started"] = df.week.map(pw.is_starter)
     if data.has_nfl_stats:
         ps = data.player_stats[data.player_stats.player_id == pid].set_index("week")
+        # Plus every other stat this league scores that the player actually recorded
+        extra = [k for k in data.scoring if k not in keys and k in ps and ps[k].any()]
+        keys = keys + sorted(extra, key=lambda k: (k not in statcols.SCORED_LABELS,
+                                                   list(statcols.SCORED_LABELS).index(k)
+                                                   if k in statcols.SCORED_LABELS else 0, k))
         df["played"] = df.week.map(ps.played).fillna(False).astype(bool)
         df["points"] = df.week.map(ps.points)
         for k in keys:

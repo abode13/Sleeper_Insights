@@ -33,6 +33,7 @@ class LeagueData:
     # Every NFL player's completed weeks scored with this league's settings:
     # week, player_id, points, played. Empty if Sleeper's stats endpoint failed.
     player_stats: pd.DataFrame = field(default_factory=pd.DataFrame)
+    scoring: dict = field(default_factory=dict)  # stat key -> points per unit (non-zero only)
 
     @property
     def has_nfl_stats(self) -> bool:
@@ -92,23 +93,28 @@ def _player_stats(season: int, current_week: int, scoring_settings: dict) -> pd.
     game from a 0-point game; the weekly stats endpoint has both. Returns an empty frame
     if that (undocumented) endpoint fails, and callers fall back to matchup points.
     """
-    scoring = {k: float(v) for k, v in scoring_settings.items() if v}
+    scoring = _scoring(scoring_settings)
     weeks = tuple(range(1, min(current_week, 19)))
-    columns = ["week", "player_id", "points", "played"] + statcols.ALL
+    stat_keys = sorted(set(scoring) | set(statcols.ALL))  # displayed + scored stats
+    columns = ["week", "player_id", "points", "played"] + stat_keys
     if not scoring or not weeks:
         return pd.DataFrame(columns=columns)
     try:
-        weekly = api.weekly_stats(season, weeks, tuple(sorted(set(scoring) | set(statcols.ALL))))
+        weekly = api.weekly_stats(season, weeks, tuple(stat_keys))
     except Exception:
         return pd.DataFrame(columns=columns)
     rows = [
         (week, pid, round(sum(float(s.get(k) or 0) * v for k, v in scoring.items()), 2),
-         float(s.get("gp") or 0) > 0, *(float(s.get(k) or 0) for k in statcols.ALL))
+         float(s.get("gp") or 0) > 0, *(float(s.get(k) or 0) for k in stat_keys))
         for week, stats in weekly.items() for pid, s in stats.items()
     ]
     df = pd.DataFrame(rows, columns=columns)
-    df[statcols.ALL] = df[statcols.ALL].astype("float32")  # ~40k rows by season's end
+    df[stat_keys] = df[stat_keys].astype("float32")  # ~40k rows by season's end
     return df
+
+
+def _scoring(scoring_settings: dict) -> dict[str, float]:
+    return {k: float(v) for k, v in scoring_settings.items() if v}
 
 
 def _divisions(lg: dict) -> dict[int, dict]:
@@ -218,4 +224,5 @@ def load_league(league_id: str) -> LeagueData:
         byes=schedule.bye_weeks(season),
         divisions=_divisions(lg),
         player_stats=_player_stats(season, current_week, lg.get("scoring_settings") or {}),
+        scoring=_scoring(lg.get("scoring_settings") or {}),
     )
