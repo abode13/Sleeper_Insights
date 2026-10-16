@@ -19,6 +19,7 @@ class LeagueData:
     last_regular_week: int
     median_game: bool  # league plays an extra game vs. the weekly median
     playoff_teams: int
+    playoff_round_type: int  # 0: 1 week per round, 1: 2-week final, 2: 2 weeks per round
     roster_positions: list[str]
     teams: pd.DataFrame  # one row per roster
     team_weeks: pd.DataFrame  # one row per team per week that has scores
@@ -171,6 +172,7 @@ def load_league(league_id: str) -> LeagueData:
         last_regular_week=last_regular,
         median_game=bool(settings.get("league_average_match")),
         playoff_teams=int(settings.get("playoff_teams") or 6),
+        playoff_round_type=int(settings.get("playoff_round_type") or 0),
         roster_positions=list(lg.get("roster_positions") or []),
         teams=teams,
         team_weeks=team_weeks,

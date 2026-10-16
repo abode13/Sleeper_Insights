@@ -1,8 +1,9 @@
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
-from sleeper import stats, theme
+from sleeper import bracket, stats, theme
 
 data = st.session_state["data"]
 st.title("Standings")
@@ -105,15 +106,22 @@ with tabs["Playoff picture"]:
     st.markdown(f"**If the season ended today** — {data.playoff_teams} teams make the playoffs"
                 + (" (every division leader is in and takes a top seed)." if has_divisions
                    else "."))
-    by_seed = seeds.set_index("Seed")
-    lines = []
-    for a, b in pairs:
-        if b is None:
-            lines.append(f"- **#{a} {by_seed.loc[a, 'team']}** — first-round bye")
-        else:
-            lines.append(f"- #{a} {by_seed.loc[a, 'team']} vs. #{b} {by_seed.loc[b, 'team']}")
-    st.markdown("\n".join(["**First round**"] + lines))
     rec_col = "Total" if data.median_game else "Record"
+    bracket_teams = {
+        int(r.Seed): {"team": r.team, "record": r[rec_col], "avatar": r.avatar,
+                      "leader": r.Status.startswith("Division leader") or not has_divisions}
+        for _, r in seeds[seeds.Seed.notna()].iterrows()
+    }
+    # Rendered in a frame: st.html sanitizes SVG away
+    components.html(
+        '<body style="margin:0">'
+        + bracket.bracket_svg(bracket_teams, data.playoff_teams, data.last_regular_week + 1,
+                              data.playoff_round_type)
+        + "</body>",
+        height=bracket.bracket_height(data.playoff_teams) + 8,
+    )
+    if has_divisions:
+        st.caption("Blue seed = division leader · gray seed = wildcard")
     pcols = ["Seed"] + (["avatar"] if seeds.avatar.notna().any() else []) + ["team", "owner"]
     pcols += (["Division"] if has_divisions else []) + [rec_col, "PF", "PA", "Status", "GB"]
     # Show blanks instead of "None" for teams without a seed / teams already in
