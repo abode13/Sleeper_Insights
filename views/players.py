@@ -68,14 +68,14 @@ if data.has_nfl_stats:
 
 event = st.dataframe(
     view[cols], hide_index=True, width="stretch", height=420, column_config=column_config,
-    # Cell selection too, so clicking anywhere in a row picks that player
-    on_select="rerun", selection_mode=["single-row", "single-cell"], key="players_table",
+    # Cell selection (no row checkboxes): clicking anywhere in a row picks that player
+    on_select="rerun", selection_mode="single-cell", key="players_table",
 )
 st.caption("👆 Click a player to see his week-by-week stats.")
 
 # -- Player detail ------------------------------------------------------------------------
 sel = event.selection if event else None
-row = sel.rows[0] if sel and sel.rows else (sel.cells[0][0] if sel and sel.cells else None)
+row = sel.cells[0][0] if sel and sel.cells else None
 if row is not None and row < len(view):
     p = view.iloc[row]
     detail = stats.player_weekly_detail(data, p.player_id)
