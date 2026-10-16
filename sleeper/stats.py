@@ -22,18 +22,22 @@ NON_STARTING_SLOTS = {"BN", "IR", "TAXI"}
 def standings(data: LeagueData) -> pd.DataFrame:
     tw = data.team_weeks
     tw = tw[tw.final & tw.regular]
+    division_of = dict(zip(data.teams.roster_id, data.teams.division))
     rows = []
     for t in data.teams.itertuples():
         g = tw[tw.roster_id == t.roster_id]
         w, l, ties = (g.result == "W").sum(), (g.result == "L").sum(), (g.result == "T").sum()
         mw = int(g.beat_median.sum())
         ml = len(g) - mw
+        in_div = g[g.opp_roster_id.map(division_of) == t.division] if t.division else g.iloc[:0]
         rows.append({
             "roster_id": t.roster_id,
             "avatar": t.avatar,
             "team": t.team,
             "owner": t.owner,
+            "division": t.division,
             "W": int(w), "L": int(l), "T": int(ties),
+            "Div W": int((in_div.result == "W").sum()), "Div L": int((in_div.result == "L").sum()),
             "Med W": mw, "Med L": ml,
             "PF": g.points.sum(),
             "PA": g.opp_points.sum(),
@@ -46,9 +50,58 @@ def standings(data: LeagueData) -> pd.DataFrame:
         df["Tot W"], df["Tot L"] = df.W, df.L
     df = df.merge(all_play(data), on="roster_id", how="left")
     df["Luck"] = df.W - df["Exp W"]
-    df = df.sort_values(["Tot W", "PF"], ascending=False).reset_index(drop=True)
+    # Sleeper's tiebreakers: record, then points for, then points against (higher wins)
+    df["_record"] = df["Tot W"] + 0.5 * df["T"]
+    df = df.sort_values(["_record", "PF", "PA"], ascending=False).drop(columns="_record")
+    df = df.reset_index(drop=True)
     df.insert(0, "Rank", range(1, len(df) + 1))
     return df
+
+
+def playoff_picture(data: LeagueData, table: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """Seeds if the season ended today, following Sleeper's rules.
+
+    With divisions, every division leader qualifies and takes the top seeds; the remaining
+    spots go to the best other teams. `table` must be sorted like `standings()`.
+
+    Returns (seeded table incl. non-qualifiers, first-round pairings as (seed, seed|None)).
+    """
+    n = min(data.playoff_teams, len(table))
+    df = table.copy()
+    if data.divisions and df.division.notna().any():
+        leaders = df.groupby("division", sort=False).head(1)
+        leaders = leaders.head(n)  # more divisions than spots: best leaders only
+        others = df.drop(leaders.index)
+        seeded = pd.concat([leaders, others.head(n - len(leaders))])
+        df["Status"] = "Out"
+        df.loc[others.head(n - len(leaders)).index, "Status"] = "Wildcard"
+        df.loc[leaders.index, "Status"] = "Division leader"
+    else:
+        seeded = df.head(n)
+        df["Status"] = "Out"
+        df.loc[seeded.index, "Status"] = "In"
+    df["Seed"] = float("nan")
+    df.loc[seeded.index, "Seed"] = range(1, len(seeded) + 1)
+
+    # Bracket: pad to the next power of two; top seeds fill the gaps with byes
+    size = 1
+    while size < n:
+        size *= 2
+    byes = size - n
+    df.loc[df.Seed.notna() & (df.Seed <= byes), "Status"] += " · bye"
+    pairs = [(s, None) for s in range(1, byes + 1)]
+    rest = list(range(byes + 1, n + 1))
+    while len(rest) >= 2:
+        pairs.append((rest.pop(0), rest.pop()))
+
+    # Games behind the last playoff spot (for teams outside)
+    if n:
+        cut = df.loc[df.Seed == n].iloc[0]
+        cut_w, cut_l = cut["Tot W"], cut["Tot L"]
+        df["GB"] = ((cut_w - df["Tot W"]) + (df["Tot L"] - cut_l)) / 2
+        df.loc[df.Seed.notna(), "GB"] = float("nan")
+    seeded_first = pd.concat([df[df.Seed.notna()].sort_values("Seed"), df[df.Seed.isna()]])
+    return seeded_first.reset_index(drop=True), pairs
 
 
 def all_play(data: LeagueData) -> pd.DataFrame:

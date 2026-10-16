@@ -15,16 +15,24 @@ def configured_league_id() -> str | None:
             return str(st.secrets["LEAGUE_ID"])
     except Exception:  # no secrets.toml
         pass
-    return os.environ.get("LEAGUE_ID") or st.query_params.get("league")
+    return os.environ.get("LEAGUE_ID")
 
 
+# A league chosen in the URL or the input box is remembered for the session, because
+# switching pages drops the URL's query parameters
 league_id = configured_league_id()
+if not league_id:
+    league_id = st.query_params.get("league") or st.session_state.get("league_id")
+    if league_id:
+        st.session_state["league_id"] = league_id
+        st.query_params["league"] = league_id  # keep it in the URL so it can be shared
 if not league_id:
     st.title("Sleeper League Dashboard")
     st.info("No league configured. Set `LEAGUE_ID` in `.streamlit/secrets.toml` "
             "or enter it below (it's the number in your sleeper.com league URL).")
     entered = st.text_input("League ID")
     if entered:
+        st.session_state["league_id"] = entered.strip()
         st.query_params["league"] = entered.strip()
         st.rerun()
     st.stop()

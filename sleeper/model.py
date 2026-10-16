@@ -18,6 +18,7 @@ class LeagueData:
     current_week: int  # NFL week in progress (weeks before it are final)
     last_regular_week: int
     median_game: bool  # league plays an extra game vs. the weekly median
+    playoff_teams: int
     roster_positions: list[str]
     teams: pd.DataFrame  # one row per roster
     team_weeks: pd.DataFrame  # one row per team per week that has scores
@@ -27,6 +28,7 @@ class LeagueData:
     current_rosters: dict = field(default_factory=dict)  # roster_id -> [player_id]
     players: dict = field(default_factory=dict)  # player_id -> slim player info
     byes: dict = field(default_factory=dict)  # NFL team -> bye week
+    divisions: dict = field(default_factory=dict)  # division number -> {"name", "avatar"}
 
     def team_name(self, roster_id) -> str:
         return self.names.get(roster_id, f"Team {roster_id}")
@@ -61,9 +63,11 @@ def _teams(users: list[dict], rosters: list[dict]) -> pd.DataFrame:
         avatar = meta.get("avatar") or (AVATAR_URL.format(u["avatar"]) if u.get("avatar") else None)
         rows.append({
             "roster_id": r["roster_id"],
-            "team": meta.get("team_name") or u.get("display_name") or f"Team {r['roster_id']}",
+            "team": (meta.get("team_name") or u.get("display_name")
+                     or f"Team {r['roster_id']}").strip(),
             "owner": u.get("display_name") or "—",
             "avatar": avatar,
+            "division": s.get("division"),
             # Sleeper's own numbers, kept for cross-checking our calculations
             "sleeper_wins": s.get("wins", 0),
             "sleeper_losses": s.get("losses", 0),
@@ -71,6 +75,14 @@ def _teams(users: list[dict], rosters: list[dict]) -> pd.DataFrame:
             "sleeper_fpts": s.get("fpts", 0) + s.get("fpts_decimal", 0) / 100,
         })
     return pd.DataFrame(rows).sort_values("roster_id").reset_index(drop=True)
+
+
+def _divisions(lg: dict) -> dict[int, dict]:
+    meta = lg.get("metadata") or {}
+    n = int((lg.get("settings") or {}).get("divisions") or 0)
+    return {d: {"name": meta.get(f"division_{d}") or f"Division {d}",
+                "avatar": meta.get(f"division_{d}_avatar")}
+            for d in range(1, n + 1)}
 
 
 def _points(m: dict) -> float:
@@ -158,6 +170,7 @@ def load_league(league_id: str) -> LeagueData:
         current_week=current_week,
         last_regular_week=last_regular,
         median_game=bool(settings.get("league_average_match")),
+        playoff_teams=int(settings.get("playoff_teams") or 6),
         roster_positions=list(lg.get("roster_positions") or []),
         teams=teams,
         team_weeks=team_weeks,
@@ -168,4 +181,5 @@ def load_league(league_id: str) -> LeagueData:
         current_rosters={r["roster_id"]: list(r.get("players") or []) for r in rosters},
         players=players,
         byes=schedule.bye_weeks(season),
+        divisions=_divisions(lg),
     )
