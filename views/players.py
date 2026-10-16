@@ -13,24 +13,39 @@ else:
     st.caption("Only points scored while on a fantasy roster in this league are counted; "
                "weeks with 0 points are treated as missed games (NFL stats unavailable).")
 
-summary = stats.player_summary(data)
+o1, o2, o3 = st.columns([1, 1, 2], vertical_alignment="center")
+include_fa = o1.toggle(
+    "Include free agents", value=False, disabled=not data.has_nfl_stats,
+    help="Also list every NFL player nobody in this league has rostered this season — "
+         "handy for finding waiver pickups" if data.has_nfl_stats
+    else "Needs NFL player stats, which are unavailable right now")
+show_stats = o2.toggle("Show NFL stats", value=True, disabled=not data.has_nfl_stats)
+per_game = o3.segmented_control("Stats as", ["Season totals", "Per game"],
+                                default="Season totals",
+                                disabled=not data.has_nfl_stats) == "Per game"
+
+summary = stats.player_summary(data, include_free_agents=include_fa)
 if summary.empty:
     st.info("No completed weeks yet.")
     st.stop()
 
-f0, f1, f2, f3 = st.columns([2, 2, 3, 1])
+f0, f1, f2, f3, f4 = st.columns([2, 2, 2, 3, 1])
 search = f0.text_input("Search", placeholder="Player name…")
 positions = sorted(summary.pos.dropna().unique())
 pos = f1.multiselect("Position", positions, placeholder="All positions")
+nfl_teams = sorted(summary.nfl_team.dropna().unique())
+nfl = f2.multiselect("NFL team", nfl_teams, placeholder="All NFL teams")
 teams = sorted(summary.fantasy_team.unique())
-team = f2.multiselect("Fantasy team", teams, placeholder="All teams")
-min_games = f3.number_input("Min games", 0, 18, 1)
+team = f3.multiselect("Fantasy team", teams, placeholder="All teams")
+min_games = f4.number_input("Min games", 0, 18, 1)
 
 view = summary
 if search.strip():
     view = view[view.name.str.contains(search.strip(), case=False, regex=False, na=False)]
 if pos:
     view = view[view.pos.isin(pos)]
+if nfl:
+    view = view[view.nfl_team.isin(nfl)]
 if team:
     view = view[view.fantasy_team.isin(team)]
 view = view[view.games >= min_games].reset_index(drop=True)
@@ -57,10 +72,6 @@ column_config = {
 }
 
 if data.has_nfl_stats:
-    o1, o2 = st.columns([1, 3], vertical_alignment="center")
-    show_stats = o1.toggle("Show NFL stats", value=True)
-    per_game = o2.segmented_control("Stats as", ["Season totals", "Per game"],
-                                    default="Season totals") == "Per game"
     if show_stats:
         keys = statcols.columns_for(pos)
         season = stats.player_season_stats(data, keys, per_game)
@@ -92,7 +103,7 @@ event = st.dataframe(
     # Cell selection (no row checkboxes): clicking anywhere in a row picks that player.
     # The key changes with the filters, so filtering clears a previous selection.
     on_select="rerun", selection_mode="single-cell",
-    key=player_view.table_key("players", search, pos, team, min_games),
+    key=player_view.table_key("players", search, pos, nfl, team, min_games, include_fa),
 )
 st.caption("👆 Click a player to see his week-by-week stats.")
 

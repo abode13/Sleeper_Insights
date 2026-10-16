@@ -246,24 +246,38 @@ def player_weekly_detail(data: LeagueData, pid: str) -> pd.DataFrame:
     return df
 
 
-def player_summary(data: LeagueData) -> pd.DataFrame:
+def player_summary(data: LeagueData, include_free_agents: bool = False) -> pd.DataFrame:
+    """One row per player: everyone on a roster now or earlier this season, plus (optionally)
+    every other NFL player who has played this season."""
     pw = data.player_weeks[data.player_weeks.week < data.current_week]
     started = pw[pw.is_starter]
-    g = pw.groupby(["player_id", "name", "pos", "nfl_team"], dropna=False)
-    df = g.agg(roster_total=("points", "sum"),
-               games=("points", lambda s: (s != 0).sum())).reset_index()
-    df["total"] = df.roster_total
+    owner_now = {pid: rid for rid, pids in data.current_rosters.items() for pid in pids}
+    ids = set(pw.player_id) | set(owner_now)
+    ps = data.player_stats
+    if data.has_nfl_stats:
+        ps = ps[ps.played & (ps.week < data.current_week)]
+        if include_free_agents:
+            ids |= {p for p in ps.player_id.unique()
+                    if data.player(p)["pos"] in statcols.BY_POSITION}
+
+    df = pd.DataFrame({"player_id": sorted(ids)})
+    info = df.player_id.map(data.player)
+    df["name"] = info.map(lambda i: i["name"])
+    df["pos"] = info.map(lambda i: i["pos"])
+    df["nfl_team"] = info.map(lambda i: i["team"])
+    df["roster_total"] = df.player_id.map(pw.groupby("player_id").points.sum()).fillna(0)
     if data.has_nfl_stats:
         # Whole season from NFL stats: every game played, not just weeks on a league roster
-        ps = data.player_stats
-        ps = ps[ps.played & (ps.week < data.current_week)]
         df["total"] = df.player_id.map(ps.groupby("player_id").points.sum()).fillna(0)
-        df["games"] = df.player_id.map(games_played(data)).fillna(0).astype(int)
+        df["games"] = df.player_id.map(ps.groupby("player_id").size()).fillna(0).astype(int)
+    else:
+        df["total"] = df.roster_total
+        nonzero = pw[pw.points != 0].groupby("player_id").size()
+        df["games"] = df.player_id.map(nonzero).fillna(0).astype(int)
     df["avg"] = df.total / df.games.where(df.games > 0)
     df["started"] = df.player_id.map(started.groupby("player_id").size()).fillna(0).astype(int)
     df["started_pts"] = df.player_id.map(started.groupby("player_id").points.sum()).fillna(0)
-    # Fantasy team that has the player now; players dropped since are free agents
-    owner_now = {pid: rid for rid, pids in data.current_rosters.items() for pid in pids}
+    # Fantasy team that has the player now; everyone else is a free agent
     df["roster_id"] = df.player_id.map(owner_now)
     df["fantasy_team"] = df.roster_id.map(data.names).fillna("Free agent")
     return df.sort_values(["avg", "total"], ascending=False, na_position="last").reset_index(
