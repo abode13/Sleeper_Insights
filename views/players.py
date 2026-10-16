@@ -80,7 +80,13 @@ if data.has_nfl_stats:
 
 numeric_cols = [c for c in cols if c not in ("name", "pos", "nfl_team", "fantasy_team")]
 event = st.dataframe(
-    theme.shade(view[cols], numeric_cols), hide_index=True, width="stretch",
+    theme.shade(view[cols], numeric_cols,
+                lower_is_better=statcols.lower_is_better(numeric_cols, data.scoring),
+                # Only shade stats that belong to the player's position (no red 0 pass
+                # yards for running backs)
+                relevant={k: view.pos.map(lambda p, k=k: k in statcols.BY_POSITION.get(
+                    p, statcols.MIXED)) for k in numeric_cols if k in statcols.ALL}),
+    hide_index=True, width="stretch",
     height=min(420, 35 * (len(view) + 1) + 3),
     column_config=column_config,
     # Cell selection (no row checkboxes): clicking anywhere in a row picks that player.

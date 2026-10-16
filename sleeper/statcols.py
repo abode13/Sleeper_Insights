@@ -32,6 +32,15 @@ SCORED_LABELS = {
 }
 
 
+# Stats where a lower number is better (also: anything the league scores negatively)
+LOWER_IS_BETTER = {"pass_int", "pass_int_td", "pass_sack", "fum_lost", "fgmiss", "xpmiss",
+                   "pts_allow", "yds_allow"}
+
+
+def lower_is_better(keys, scoring: dict) -> list[str]:
+    return [k for k in keys if k in LOWER_IS_BETTER or scoring.get(k, 0) < 0]
+
+
 def label(key: str) -> str:
     return LABELS.get(key) or SCORED_LABELS.get(key) or key.replace("_", " ").capitalize()
 

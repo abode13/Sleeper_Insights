@@ -22,12 +22,21 @@ DIVERGING = [
 
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
-# Soft table shading: lowest value in a column = no tint, highest = light blue (step 150)
-_TINT_LOW, _TINT_HIGH = (252, 252, 251), (183, 211, 246)
+# Pastel table shading: worst value in a column = red, then orange, yellow, best = green
+_TINT_STOPS = [(0.0, (246, 196, 196)), (0.33, (250, 216, 186)), (0.66, (249, 238, 184)),
+               (1.0, (200, 230, 196))]
 
 
-def gradient_css(values) -> list[str]:
-    """CSS backgrounds for one table column, scaled from its min to its max."""
+def _tint(t: float) -> tuple[int, int, int]:
+    for (t0, c0), (t1, c1) in zip(_TINT_STOPS, _TINT_STOPS[1:]):
+        if t <= t1:
+            f = (t - t0) / (t1 - t0)
+            return tuple(round(a + (b - a) * f) for a, b in zip(c0, c1))
+    return _TINT_STOPS[-1][1]
+
+
+def gradient_css(values, reverse: bool = False) -> list[str]:
+    """CSS backgrounds for one table column: its min is red, its max green (or reversed)."""
     import pandas as pd
 
     v = pd.to_numeric(pd.Series(values), errors="coerce")
@@ -40,18 +49,30 @@ def gradient_css(values) -> list[str]:
             out.append("")
             continue
         t = (x - lo) / (hi - lo)
-        r, g, b = (round(a + (c - a) * t) for a, c in zip(_TINT_LOW, _TINT_HIGH))
+        r, g, b = _tint(1 - t if reverse else t)
         out.append(f"background-color: rgb({r}, {g}, {b})")
     return out
 
 
-def shade(df, columns, values=None):
-    """Styler for `df` with a soft per-column gradient on `columns`.
+def shade(df, columns, values=None, lower_is_better=(), relevant=None):
+    """Styler for `df` with a pastel per-column gradient on `columns`.
 
-    `values` supplies the numbers to scale by when `df` holds pre-formatted text.
+    `values` supplies the numbers to scale by when `df` holds pre-formatted text;
+    columns in `lower_is_better` get the reversed scale (low = green). `relevant`
+    (column -> boolean Series) limits shading and scaling to the rows where that
+    stat makes sense, e.g. pass yards only for QBs.
     """
     values = df if values is None else values
-    return df.style.apply(lambda col: gradient_css(values[col.name]), subset=list(columns))
+    flip = set(lower_is_better)
+    relevant = relevant or {}
+
+    def column_css(col):
+        v = values[col.name]
+        if col.name in relevant:
+            v = v.where(relevant[col.name])
+        return gradient_css(v, col.name in flip)
+
+    return df.style.apply(column_css, subset=list(columns))
 
 pio.templates["ffdash"] = go.layout.Template(
     layout=dict(
