@@ -245,20 +245,24 @@ def player_summary(data: LeagueData) -> pd.DataFrame:
     pw = data.player_weeks[data.player_weeks.week < data.current_week]
     started = pw[pw.is_starter]
     g = pw.groupby(["player_id", "name", "pos", "nfl_team"], dropna=False)
-    df = g.agg(total=("points", "sum"), games=("points", lambda s: (s != 0).sum())).reset_index()
-    df["avg"] = df.total / df.games.where(df.games > 0)
+    df = g.agg(roster_total=("points", "sum"),
+               games=("points", lambda s: (s != 0).sum())).reset_index()
+    df["total"] = df.roster_total
     if data.has_nfl_stats:
-        # Real NFL games and per-game average over the whole season, not just roster weeks
+        # Whole season from NFL stats: every game played, not just weeks on a league roster
+        ps = data.player_stats
+        ps = ps[ps.played & (ps.week < data.current_week)]
+        df["total"] = df.player_id.map(ps.groupby("player_id").points.sum()).fillna(0)
         df["games"] = df.player_id.map(games_played(data)).fillna(0).astype(int)
-        df["avg"] = df.player_id.map(player_values(data))
+    df["avg"] = df.total / df.games.where(df.games > 0)
     df["started"] = df.player_id.map(started.groupby("player_id").size()).fillna(0).astype(int)
     df["started_pts"] = df.player_id.map(started.groupby("player_id").points.sum()).fillna(0)
-    # Fantasy team the player is on now (or was on last)
+    # Fantasy team that has the player now; players dropped since are free agents
     owner_now = {pid: rid for rid, pids in data.current_rosters.items() for pid in pids}
-    last = pw.sort_values("week").groupby("player_id").roster_id.last()
-    df["roster_id"] = df.player_id.map(owner_now).fillna(df.player_id.map(last))
+    df["roster_id"] = df.player_id.map(owner_now)
     df["fantasy_team"] = df.roster_id.map(data.names).fillna("Free agent")
-    return df.sort_values("total", ascending=False).reset_index(drop=True)
+    return df.sort_values(["avg", "total"], ascending=False, na_position="last").reset_index(
+        drop=True)
 
 
 # ---------------------------------------------------------------- bye luck

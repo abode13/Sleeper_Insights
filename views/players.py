@@ -7,9 +7,9 @@ from sleeper import statcols, stats, theme
 data = st.session_state["data"]
 st.title("Players")
 if data.has_nfl_stats:
-    st.caption("**Total** and **started** count points scored while on a roster in this "
-               "league. **Games** and **Avg** cover every NFL game the player played this "
-               "season, scored with this league's settings.")
+    st.caption("**Total**, **Games** and **Avg** cover every NFL game the player played this "
+               "season, scored with this league's settings. **Started** counts starts in this "
+               "league. Sorted by Avg; click a header to sort by something else.")
 else:
     st.caption("Only points scored while on a fantasy roster in this league are counted; "
                "weeks with 0 points are treated as missed games (NFL stats unavailable).")
@@ -39,9 +39,14 @@ view = view[view.games >= min_games].reset_index(drop=True)
 cols = ["name", "pos", "nfl_team", "fantasy_team", "total", "games", "avg", "started",
         "started_pts"]
 column_config = {
-    "name": "Player", "pos": "Pos", "nfl_team": "NFL", "fantasy_team": "Fantasy team",
-    "total": st.column_config.NumberColumn("Total", format="%.2f",
-                                           help="Points while on a roster in this league"),
+    "name": "Player", "pos": "Pos", "nfl_team": "NFL",
+    "fantasy_team": st.column_config.TextColumn(
+        "Fantasy team", help="Team that has him now (Free agent if nobody does). "
+                             "Click the player to see who had him each week."),
+    "total": st.column_config.NumberColumn(
+        "Total", format="%.2f",
+        help="Season points from every NFL game played (this league's scoring)"
+        if data.has_nfl_stats else "Points while on a roster in this league"),
     "games": st.column_config.NumberColumn(
         "Games", help="NFL games played this season" if data.has_nfl_stats
         else "Weeks with non-zero points on a league roster"),
@@ -64,8 +69,10 @@ if data.has_nfl_stats:
             whole = (k in statcols.SEASON_MAX
                      or not (per_game or k in statcols.ALWAYS_PER_GAME))
             label = statcols.label(k) + ("/g" if k in statcols.ALWAYS_PER_GAME else "")
+            pts = data.scoring.get(k)
             column_config[k] = st.column_config.NumberColumn(
-                label, format="%d" if whole else "%.1f")
+                label, format="%d" if whole else "%.1f",
+                help=f"Scored in this league: {pts:+g} pts each" if pts else None)
         if len(pos) != 1:
             st.caption("Pick a single position above for its full set of stats "
                        "(e.g. kicking or defense).")
@@ -99,7 +106,8 @@ if row is not None and row < len(view):
     m1.metric("Games played", int(p.games))
     m2.metric("Points per game", f"{p.avg:.2f}" if p.avg == p.avg else "–")
     m3.metric("Fantasy team now", p.fantasy_team)
-    m4.metric("Points on league rosters", f"{p.total:.1f}")
+    m4.metric("Points on league rosters", f"{p.roster_total:.1f}",
+              help="Points scored while on any roster in this league, bench included")
 
     played = detail[detail.points.notna()]
     fig = go.Figure(go.Bar(
