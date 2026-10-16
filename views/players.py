@@ -1,8 +1,7 @@
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sleeper import statcols, stats, theme
+from sleeper import player_view, statcols, stats, theme
 
 data = st.session_state["data"]
 st.title("Players")
@@ -80,72 +79,16 @@ if data.has_nfl_stats:
 event = st.dataframe(
     view[cols], hide_index=True, width="stretch", height=min(420, 35 * (len(view) + 1) + 3),
     column_config=column_config,
-    # Cell selection (no row checkboxes): clicking anywhere in a row picks that player
-    on_select="rerun", selection_mode="single-cell", key="players_table",
+    # Cell selection (no row checkboxes): clicking anywhere in a row picks that player.
+    # The key changes with the filters, so filtering clears a previous selection.
+    on_select="rerun", selection_mode="single-cell",
+    key=player_view.table_key("players", search, pos, team, min_games),
 )
 st.caption("👆 Click a player to see his week-by-week stats.")
 
-# -- Player detail ------------------------------------------------------------------------
-sel = event.selection if event else None
-row = sel.cells[0][0] if sel and sel.cells else None
+row = player_view.selected_row(event)
 if row is not None and row < len(view):
-    p = view.iloc[row]
-    detail = stats.player_weekly_detail(data, p.player_id)
-    nfl_team = p.nfl_team if isinstance(p.nfl_team, str) else "no NFL team"
-    st.subheader(f"{p['name']} · {p.pos} · {nfl_team}", anchor="player-detail")
-    if st.session_state.get("players_scrolled_to") != p.player_id:
-        # Scroll down to the detail once per newly picked player
-        st.session_state["players_scrolled_to"] = p.player_id
-        st.iframe(
-            "<script>setTimeout(() => window.parent.document.getElementById("
-            "'player-detail')?.scrollIntoView({behavior: 'smooth', block: 'start'}), 300)"
-            f"</script><!-- {p.player_id} -->",
-            height=1,
-        )
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Games played", int(p.games))
-    m2.metric("Points per game", f"{p.avg:.2f}" if p.avg == p.avg else "–")
-    m3.metric("Fantasy team now", p.fantasy_team)
-    m4.metric("Points on league rosters", f"{p.roster_total:.1f}",
-              help="Points scored while on any roster in this league, bench included")
-
-    played = detail[detail.points.notna()]
-    fig = go.Figure(go.Bar(
-        x=played.week, y=played.points, marker_color=theme.HIGHLIGHT,
-        hovertemplate="Week %{x}: %{y:.2f} pts<extra></extra>",
-    ))
-    fig.update_layout(height=260, xaxis=dict(title="Week", dtick=1), yaxis_title="Points",
-                      bargap=0.35, margin=dict(t=20))
-    st.plotly_chart(fig, width="stretch")
-
-    base = ["week", "opponent", "result", "fantasy_team", "started", "points"]
-    keys = [c for c in detail.columns if c not in base and c != "played"]
-
-    def stat_column(k):
-        pts = data.scoring.get(k)
-        return st.column_config.TextColumn(
-            statcols.label(k), alignment="right",
-            help=f"Scored in this league: {pts:+g} pts each" if pts else "Not scored")
-
-    # Pre-formatted text so missed weeks show blank cells (number columns would say "None")
-    table = detail[base + keys].copy()
-    for k in ["points"] + keys:
-        fmt = "{:.2f}" if k == "points" else (
-            "{:.0f}" if (table[k].dropna() % 1 == 0).all() else "{:.1f}")
-        table[k] = table[k].map(lambda v, f=fmt: "" if pd.isna(v) else f.format(v))
-    st.dataframe(
-        table, hide_index=True, width="stretch",
-        column_config={
-            "week": "Week", "opponent": "Opponent",
-            "result": st.column_config.TextColumn(
-                "Result", help="NFL game result for his team (and whether he played)"),
-            "fantasy_team": "Fantasy team",
-            "started": st.column_config.CheckboxColumn("Started"),
-            "points": st.column_config.TextColumn("Points", alignment="right"),
-            **{k: stat_column(k) for k in keys},
-        },
-    )
-    st.caption("Hover a stat's header to see how many points it's worth in this league.")
+    player_view.show_player(data, view.iloc[row].player_id)
 
 st.subheader("Weekly points — top players")
 n = st.slider("Players shown", 10, 50, 25, step=5)

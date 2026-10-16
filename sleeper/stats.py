@@ -242,7 +242,7 @@ def player_weekly_detail(data: LeagueData, pid: str) -> pd.DataFrame:
     df["result"] = [games.get((team, w), {}).get("result", "") for w in df.week]
     df.loc[df.week == bye, "opponent"] = "Bye"
     did_not_play = ~df.played & (df.week != bye)
-    df.loc[did_not_play, "result"] = ("Did not play · " + df.loc[did_not_play, "result"]).str.rstrip(" ·")
+    df.loc[did_not_play, "result"] = ("DNP · " + df.loc[did_not_play, "result"]).str.rstrip(" ·")
     return df
 
 

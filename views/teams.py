@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sleeper import stats, theme
+from sleeper import player_view, stats, theme
 
 data = st.session_state["data"]
 st.title("Teams")
@@ -100,6 +100,7 @@ for pid in ids:
     info = data.player(pid)
     a = agg.loc[pid] if pid in agg.index else None
     rows.append({
+        "player_id": pid,
         "Player": info["name"], "Pos": info["pos"], "NFL": info["team"],
         "Bye": data.byes.get(info["team"]),
         "On roster": pid in current,
@@ -109,9 +110,10 @@ for pid in ids:
         "Starter pts": a.starter_pts if a is not None else 0.0,
         "Bench pts": max(a.total - a.starter_pts, 0.0) if a is not None else 0.0,
     })
-roster = pd.DataFrame(rows).sort_values(["On roster", "Total"], ascending=False)
-st.dataframe(
-    roster, hide_index=True, width="stretch",
+roster = (pd.DataFrame(rows).sort_values(["On roster", "Total"], ascending=False)
+          .reset_index(drop=True))
+event = st.dataframe(
+    roster.drop(columns="player_id"), hide_index=True, width="stretch",
     column_config={
         "Total": st.column_config.NumberColumn(format="%.2f"),
         "Avg": st.column_config.NumberColumn(format="%.2f", help="Per week on this roster"),
@@ -119,4 +121,10 @@ st.dataframe(
         "Bench pts": st.column_config.NumberColumn(format="%.2f"),
         "On roster": st.column_config.CheckboxColumn(help="On the roster today"),
     },
+    on_select="rerun", selection_mode="single-cell",
+    key=player_view.table_key("team_roster", rid),
 )
+st.caption("👆 Click a player to see his week-by-week stats.")
+row = player_view.selected_row(event)
+if row is not None and row < len(roster):
+    player_view.show_player(data, roster.iloc[row].player_id)
