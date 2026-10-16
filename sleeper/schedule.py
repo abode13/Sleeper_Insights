@@ -1,4 +1,4 @@
-"""NFL bye weeks, derived from the nflverse schedule (Sleeper's API has no schedule endpoint)."""
+"""NFL schedule from nflverse (Sleeper's API has no schedule endpoint): byes and opponents."""
 
 import pandas as pd
 import streamlit as st
@@ -19,17 +19,42 @@ FALLBACK_BYES = {
 }
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _regular_season(season: int) -> pd.DataFrame:
+    """Regular-season games with Sleeper team abbreviations (empty if unavailable)."""
+    try:
+        games = pd.read_csv(NFLVERSE_GAMES, usecols=[
+            "season", "game_type", "week", "away_team", "home_team", "away_score", "home_score"])
+    except Exception:
+        return pd.DataFrame()
+    reg = games[(games.season == season) & (games.game_type == "REG")].copy()
+    for side in ("away_team", "home_team"):
+        reg[side] = reg[side].replace(TEAM_ALIASES)
+    return reg
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def team_games(season: int) -> dict[tuple[str, int], dict]:
+    """(team, week) -> {"opponent": "vs DAL" / "@ SF", "result": "W 27-20" or ""}."""
+    out = {}
+    for g in _regular_season(season).itertuples():
+        played = g.home_score == g.home_score and g.away_score == g.away_score  # not NaN
+        for team, opp, at, own, other in (
+            (g.home_team, g.away_team, "vs", g.home_score, g.away_score),
+            (g.away_team, g.home_team, "@", g.away_score, g.home_score),
+        ):
+            result = ""
+            if played:
+                outcome = "W" if own > other else "L" if own < other else "T"
+                result = f"{outcome} {own:.0f}-{other:.0f}"
+            out[(team, int(g.week))] = {"opponent": f"{at} {opp}", "result": result}
+    return out
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def bye_weeks(season: int) -> dict[str, int]:
     """Map Sleeper team abbreviation -> regular-season bye week."""
-    try:
-        games = pd.read_csv(
-            NFLVERSE_GAMES, usecols=["season", "game_type", "week", "away_team", "home_team"]
-        )
-    except Exception:
-        return FALLBACK_BYES.get(season, {})
-
-    reg = games[(games.season == season) & (games.game_type == "REG")]
+    reg = _regular_season(season)
     if reg.empty:
         return FALLBACK_BYES.get(season, {})
 
@@ -37,7 +62,7 @@ def bye_weeks(season: int) -> dict[str, int]:
     played: dict[str, set[int]] = {}
     for side in ("away_team", "home_team"):
         for team, week in zip(reg[side], reg.week):
-            played.setdefault(TEAM_ALIASES.get(team, team), set()).add(int(week))
+            played.setdefault(team, set()).add(int(week))
 
     byes = {}
     for team, weeks in played.items():

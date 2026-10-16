@@ -118,7 +118,7 @@ if row is not None and row < len(view):
                       bargap=0.35, margin=dict(t=20))
     st.plotly_chart(fig, width="stretch")
 
-    base = ["week", "note", "fantasy_team", "started", "points"]
+    base = ["week", "opponent", "result", "fantasy_team", "started", "points"]
     keys = [c for c in detail.columns if c not in base and c != "played"]
 
     def stat_column(k):
@@ -136,7 +136,10 @@ if row is not None and row < len(view):
     st.dataframe(
         table, hide_index=True, width="stretch",
         column_config={
-            "week": "Week", "note": "", "fantasy_team": "Fantasy team",
+            "week": "Week", "opponent": "Opponent",
+            "result": st.column_config.TextColumn(
+                "Result", help="NFL game result for his team (and whether he played)"),
+            "fantasy_team": "Fantasy team",
             "started": st.column_config.CheckboxColumn("Started"),
             "points": st.column_config.TextColumn("Points", alignment="right"),
             **{k: stat_column(k) for k in keys},

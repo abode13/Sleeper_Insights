@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from sleeper import statcols
+from sleeper import schedule, statcols
 from sleeper.model import LeagueData
 
 # Lineup slot -> positions that may fill it
@@ -234,10 +234,15 @@ def player_weekly_detail(data: LeagueData, pid: str) -> pd.DataFrame:
     else:
         df["played"] = df.week.map(pw.points).fillna(0) != 0
         df["points"] = df.week.map(pw.points)
-    bye = data.byes.get(data.player(pid)["team"])
-    df["note"] = ""
-    df.loc[df.week == bye, "note"] = "Bye"
-    df.loc[(df.note == "") & ~df.played, "note"] = "Did not play"
+    # NFL opponent and result (uses the player's current NFL team)
+    team = data.player(pid)["team"]
+    games = schedule.team_games(data.season)
+    bye = data.byes.get(team)
+    df["opponent"] = [games.get((team, w), {}).get("opponent", "") for w in df.week]
+    df["result"] = [games.get((team, w), {}).get("result", "") for w in df.week]
+    df.loc[df.week == bye, "opponent"] = "Bye"
+    did_not_play = ~df.played & (df.week != bye)
+    df.loc[did_not_play, "result"] = ("Did not play · " + df.loc[did_not_play, "result"]).str.rstrip(" ·")
     return df
 
 
