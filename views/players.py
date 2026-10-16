@@ -38,7 +38,9 @@ view = view[view.games >= min_games].reset_index(drop=True)
 cols = ["name", "pos", "nfl_team", "fantasy_team", "total", "games", "avg", "started",
         "started_pts"]
 column_config = {
-    "name": "Player", "pos": "Pos", "nfl_team": "NFL",
+    # Pinned so names stay visible when scrolling right to the stat columns
+    "name": st.column_config.TextColumn("Player", pinned=True),
+    "pos": "Pos", "nfl_team": "NFL",
     "fantasy_team": st.column_config.TextColumn(
         "Fantasy team", help="Team that has him now (Free agent if nobody does). "
                              "Click the player to see who had him each week."),
