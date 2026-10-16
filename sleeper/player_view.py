@@ -69,7 +69,7 @@ def show_player(data: LeagueData, pid: str):
             "{:.0f}" if (table[k].dropna() % 1 == 0).all() else "{:.1f}")
         table[k] = table[k].map(lambda v, f=fmt: "" if pd.isna(v) else f.format(v))
     st.dataframe(
-        table, hide_index=True, width="stretch",
+        theme.shade(table, ["points"] + keys, values=detail), hide_index=True, width="stretch",
         column_config={
             "week": "Week", "opponent": "Opponent",
             "result": st.column_config.TextColumn(

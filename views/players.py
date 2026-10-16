@@ -78,8 +78,10 @@ if data.has_nfl_stats:
             st.caption("Pick a single position above for its full set of stats "
                        "(e.g. kicking or defense).")
 
+numeric_cols = [c for c in cols if c not in ("name", "pos", "nfl_team", "fantasy_team")]
 event = st.dataframe(
-    view[cols], hide_index=True, width="stretch", height=min(420, 35 * (len(view) + 1) + 3),
+    theme.shade(view[cols], numeric_cols), hide_index=True, width="stretch",
+    height=min(420, 35 * (len(view) + 1) + 3),
     column_config=column_config,
     # Cell selection (no row checkboxes): clicking anywhere in a row picks that player.
     # The key changes with the filters, so filtering clears a previous selection.

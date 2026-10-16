@@ -22,6 +22,37 @@ DIVERGING = [
 
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
+# Soft table shading: lowest value in a column = no tint, highest = light blue (step 150)
+_TINT_LOW, _TINT_HIGH = (252, 252, 251), (183, 211, 246)
+
+
+def gradient_css(values) -> list[str]:
+    """CSS backgrounds for one table column, scaled from its min to its max."""
+    import pandas as pd
+
+    v = pd.to_numeric(pd.Series(values), errors="coerce")
+    lo, hi = v.min(), v.max()
+    if pd.isna(lo) or hi == lo:
+        return [""] * len(v)
+    out = []
+    for x in v:
+        if pd.isna(x):
+            out.append("")
+            continue
+        t = (x - lo) / (hi - lo)
+        r, g, b = (round(a + (c - a) * t) for a, c in zip(_TINT_LOW, _TINT_HIGH))
+        out.append(f"background-color: rgb({r}, {g}, {b})")
+    return out
+
+
+def shade(df, columns, values=None):
+    """Styler for `df` with a soft per-column gradient on `columns`.
+
+    `values` supplies the numbers to scale by when `df` holds pre-formatted text.
+    """
+    values = df if values is None else values
+    return df.style.apply(lambda col: gradient_css(values[col.name]), subset=list(columns))
+
 pio.templates["ffdash"] = go.layout.Template(
     layout=dict(
         font=dict(family=FONT, color=INK_2, size=13),
