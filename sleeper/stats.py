@@ -43,6 +43,8 @@ def standings(data: LeagueData) -> pd.DataFrame:
             "PF": g.points.sum(),
             "PA": g.opp_points.sum(),
             "Avg PF": g.points.mean() if len(g) else 0.0,
+            "Med PF": g.points.median() if len(g) else 0.0,
+            "Med PA": g.opp_points.median() if len(g) else 0.0,
         })
     df = pd.DataFrame(rows)
     if data.median_game:

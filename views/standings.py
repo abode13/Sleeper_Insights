@@ -47,6 +47,10 @@ COLUMN_CONFIG = {
     "PF": st.column_config.NumberColumn("PF", format="%.2f"),
     "PA": st.column_config.NumberColumn("PA", format="%.2f"),
     "Avg PF": st.column_config.NumberColumn("Avg PF", format="%.2f"),
+    "Med PF": st.column_config.NumberColumn(
+        "Med PF", format="%.2f", help="Median points scored per week"),
+    "Med PA": st.column_config.NumberColumn(
+        "Med PA", format="%.2f", help="Median points scored against you per week"),
     "Proj PF": st.column_config.NumberColumn(
         "Proj PF", format="%.2f",
         help="Points Sleeper projected for the lineups you actually started"),
@@ -70,7 +74,7 @@ COLUMN_CONFIG = {
 def show_table(df, extra_cols=()):
     cols = ["Rank"] + (["avatar"] if df.avatar.notna().any() else []) + ["team", "owner"]
     cols += list(extra_cols) + ["Record", "Median"] + (["Total"] if data.median_game else [])
-    cols += ["PF", "PA", "Avg PF"] + (["Proj PF", "vs Proj"] if has_proj else [])
+    cols += ["PF", "PA", "Avg PF", "Med PF", "Med PA"] + (["Proj PF", "vs Proj"] if has_proj else [])
     cols += ["All-play", "AP %", "Luck", "Bye luck"]
     st.dataframe(df[cols], hide_index=True, width="stretch",
                  height=35 * (len(df) + 1) + 3, column_config=COLUMN_CONFIG)
@@ -84,6 +88,8 @@ with st.popover("ℹ️ What do the columns mean?"):
         "more than half the league.",
         "**Total** – head-to-head plus median games (this league counts both)."
         if data.median_game else None,
+        "**Med PF / Med PA** – your median weekly score and your opponents' median weekly "
+        "score against you. Unlike averages, one blowout week doesn't move them much.",
         "**Proj PF / +/− Proj** – points Sleeper projected for the lineups you actually "
         "started, and how far above (+) or below (−) that you scored. Details at the "
         "bottom of this page." if has_proj else None,
