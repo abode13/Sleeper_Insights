@@ -28,7 +28,7 @@ div_color = {d: theme.SERIES[i % len(theme.SERIES)]
 
 
 def record(w, l, t=0) -> str:
-    return f"{w}-{l}" + (f"-{t}" if t else "")
+    return f"{int(w)}-{int(l)}" + (f"-{int(t)}" if t else "")
 
 
 summary["Record"] = [record(r.W, r.L, r.T) for r in summary.itertuples()]

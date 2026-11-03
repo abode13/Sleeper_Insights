@@ -16,6 +16,14 @@ bye_weekly, _ = stats.bye_luck(data)
 bye_played = bye_weekly[bye_weekly.played].groupby("roster_id").net.sum()
 table["Bye luck"] = table.roster_id.map(bye_played).fillna(0)
 
+# Projected vs. real points (Sleeper projection of the lineup actually started)
+proj = projections.team_projections(data)
+has_proj = not proj.empty
+if has_proj:
+    proj_totals = proj.groupby("roster_id")[["proj", "diff"]].sum()
+    table["Proj PF"] = table.roster_id.map(proj_totals.proj)
+    table["vs Proj"] = table.roster_id.map(proj_totals["diff"])
+
 table["Record"] = table.W.astype(str) + "-" + table.L.astype(str)
 table.loc[table["T"] > 0, "Record"] += "-" + table["T"].astype(str)
 table["Median"] = table["Med W"].astype(str) + "-" + table["Med L"].astype(str)
@@ -39,6 +47,11 @@ COLUMN_CONFIG = {
     "PF": st.column_config.NumberColumn("PF", format="%.2f"),
     "PA": st.column_config.NumberColumn("PA", format="%.2f"),
     "Avg PF": st.column_config.NumberColumn("Avg PF", format="%.2f"),
+    "Proj PF": st.column_config.NumberColumn(
+        "Proj PF", format="%.2f",
+        help="Points Sleeper projected for the lineups you actually started"),
+    "vs Proj": st.column_config.NumberColumn(
+        "+/− Proj", format="%+.1f", help="PF − Proj PF. Positive = beat your projections"),
     "All-play": st.column_config.TextColumn(
         "All-play", help="Record if you had played every team every week"),
     "AP %": st.column_config.ProgressColumn(
@@ -57,7 +70,8 @@ COLUMN_CONFIG = {
 def show_table(df, extra_cols=()):
     cols = ["Rank"] + (["avatar"] if df.avatar.notna().any() else []) + ["team", "owner"]
     cols += list(extra_cols) + ["Record", "Median"] + (["Total"] if data.median_game else [])
-    cols += ["PF", "PA", "Avg PF", "All-play", "AP %", "Luck", "Bye luck"]
+    cols += ["PF", "PA", "Avg PF"] + (["Proj PF", "vs Proj"] if has_proj else [])
+    cols += ["All-play", "AP %", "Luck", "Bye luck"]
     st.dataframe(df[cols], hide_index=True, width="stretch",
                  height=35 * (len(df) + 1) + 3, column_config=COLUMN_CONFIG)
 
@@ -70,6 +84,9 @@ with st.popover("ℹ️ What do the columns mean?"):
         "more than half the league.",
         "**Total** – head-to-head plus median games (this league counts both)."
         if data.median_game else None,
+        "**Proj PF / +/− Proj** – points Sleeper projected for the lineups you actually "
+        "started, and how far above (+) or below (−) that you scored. Details at the "
+        "bottom of this page." if has_proj else None,
         "**All-play** – your record if you had played *every* team *every* week. Scoring "
         "3rd-most in a 12-team week counts as 9-2 that week. It shows how strong a team "
         "really is, without the luck of the schedule.",
@@ -161,8 +178,7 @@ st.caption("Right = scores a lot. Up = opponents score a lot against you (unluck
 
 # -- Points vs. projected points ---------------------------------------------------------
 st.subheader("Points vs. projected points")
-proj = projections.team_projections(data)
-if proj.empty:
+if not has_proj:
     st.info("Sleeper projections are unavailable right now.")
     st.stop()
 
