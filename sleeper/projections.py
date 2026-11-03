@@ -24,8 +24,49 @@ def projection_weeks(data: LeagueData) -> list[int]:
     return list(range(first, last + 1))
 
 
-def _league_points(s: dict, scoring: dict) -> float:
+# A stat needs at least this many projected units (all players, completed weeks) before
+# its calibration factor is trusted; rarer stats (defensive TDs, ...) stay uncorrected.
+CALIBRATION_MIN_UNITS = 50
+
+
+def calibration(data: LeagueData) -> dict[str, float]:
+    """Per-stat correction factors for Sleeper's projections: actual ÷ projected.
+
+    Sleeper projects volume stats (yards, catches, TDs) within ~1 %, but some event stats
+    far too often: first downs ×2.4 and 40+ yard plays ×3.5 in 2026. Leagues that score
+    those would see every projection run high. Fitted on every player who played in the
+    completed weeks; {} without NFL stats or projections.
+    """
+    if not data.has_nfl_stats or not data.scoring:
+        return {}
+    ps = data.player_stats
+    ps = ps[ps.played & (ps.week < data.current_week)]
+    weeks = tuple(sorted(int(w) for w in ps.week.unique()))
+    if not weeks:
+        return {}
+    try:
+        weekly = api.projections(data.season, weeks, tuple(sorted(data.scoring)))
+    except Exception:
+        return {}
+    keys = [k for k in data.scoring if k in ps.columns]
+    proj = pd.DataFrame([{"week": w, "player_id": pid, **{k: s.get(k) for k in keys}}
+                         for w, players in weekly.items() for pid, s in players.items()],
+                        columns=["week", "player_id", *keys])
+    both = proj.merge(ps[["week", "player_id", *keys]], on=["week", "player_id"],
+                      suffixes=("_proj", "_actual"))
+    factors = {}
+    for k in keys:
+        projected = pd.to_numeric(both[f"{k}_proj"], errors="coerce").sum()
+        if projected >= CALIBRATION_MIN_UNITS:
+            factors[k] = float(both[f"{k}_actual"].sum() / projected)
+    return factors
+
+
+def _league_points(s: dict, scoring: dict, factors: dict | None = None) -> float:
     s = dict(s)
+    for k, f in (factors or {}).items():
+        if s.get(k) is not None:
+            s[k] = float(s[k]) * f
     # Projections lack a few kicker stats the league scores; derive them
     if "fgmiss" not in s and "fga" in s:
         s["fgmiss"] = max(float(s.get("fga") or 0) - float(s.get("fgm") or 0), 0.0)
@@ -37,7 +78,7 @@ def _league_points(s: dict, scoring: dict) -> float:
 def sleeper_projections(data: LeagueData) -> pd.DataFrame:
     """player_id, proj_week (this week, league scoring), proj_ros (average per projected game
     from this week to the end of the regular season; byes don't count as games).
-    Empty if Sleeper's projections are unavailable."""
+    Calibrated with `calibration()`. Empty if Sleeper's projections are unavailable."""
     weeks = projection_weeks(data)
     cols = ["player_id", "proj_week", "proj_ros"]
     if not weeks or not data.scoring:
@@ -46,7 +87,8 @@ def sleeper_projections(data: LeagueData) -> pd.DataFrame:
         weekly = api.projections(data.season, tuple(weeks), tuple(sorted(data.scoring)))
     except Exception:
         return pd.DataFrame(columns=cols)
-    rows = [(week, pid, _league_points(s, data.scoring))
+    factors = calibration(data)
+    rows = [(week, pid, _league_points(s, data.scoring, factors))
             for week, players in weekly.items() for pid, s in players.items()]
     df = pd.DataFrame(rows, columns=["week", "player_id", "pts"])
     if df.empty:
@@ -56,6 +98,42 @@ def sleeper_projections(data: LeagueData) -> pd.DataFrame:
     ros = df[df.week <= data.last_regular_week].groupby("player_id").pts.mean()
     out = pd.DataFrame({"proj_week": this_week, "proj_ros": ros}).rename_axis("player_id")
     return out.reset_index()
+
+
+def team_projections(data: LeagueData) -> pd.DataFrame:
+    """Projected vs. actual points per team per completed regular-season week.
+
+    The projection is Sleeper's projection (league scoring) for the lineup the manager
+    actually started, calibrated with `calibration()`; a starter without a projection
+    (bye, injured) counts as 0.
+    Columns: week, roster_id, points, proj, diff (actual − projected). Empty if Sleeper's
+    projections are unavailable.
+    """
+    cols = ["week", "roster_id", "points", "proj", "diff"]
+    tw = data.team_weeks
+    if tw.empty or not data.scoring:
+        return pd.DataFrame(columns=cols)
+    tw = tw[tw.final & tw.regular]
+    weeks = tuple(sorted(int(w) for w in tw.week.unique()))
+    if not weeks:
+        return pd.DataFrame(columns=cols)
+    try:
+        weekly = api.projections(data.season, weeks, tuple(sorted(data.scoring)))
+    except Exception:
+        return pd.DataFrame(columns=cols)
+    factors = calibration(data)
+    pts = {(week, pid): _league_points(s, data.scoring, factors)
+           for week, players in weekly.items() for pid, s in players.items()}
+    weeks_with_data = {week for week, players in weekly.items() if players}
+
+    pw = data.player_weeks
+    starters = pw[pw.is_starter & pw.week.isin(weeks_with_data)]
+    proj = (starters.assign(proj=[pts.get((w, p), 0.0)
+                                  for w, p in zip(starters.week, starters.player_id)])
+            .groupby(["week", "roster_id"]).proj.sum().reset_index())
+    df = tw[["week", "roster_id", "points"]].merge(proj, on=["week", "roster_id"])
+    df["diff"] = df.points - df.proj
+    return df[cols].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------- FantasyPros

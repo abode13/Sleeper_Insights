@@ -65,6 +65,7 @@ pages = [
     st.Page("views/standings.py", title="Standings", icon="🏆", default=True),
     st.Page("views/weekly.py", title="Weekly", icon="📅"),
     st.Page("views/teams.py", title="Teams", icon="👥"),
+    *([st.Page("views/divisions.py", title="Divisions", icon="🧭")] if data.divisions else []),
     st.Page("views/players.py", title="Players", icon="🏃"),
     st.Page("views/bye_luck.py", title="Bye luck", icon="🍀"),
 ]

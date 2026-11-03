@@ -436,3 +436,105 @@ def bye_breakdown(weekly: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     g["bench_saved"] = g.no_bench - g.lost
     return g.sort_values("lost", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------- divisions
+
+def division_team_weeks(data: LeagueData) -> pd.DataFrame:
+    """Completed regular-season team-weeks with each side's division (div, opp_div)."""
+    tw = data.team_weeks
+    if tw.empty:
+        return tw.assign(div=None, opp_div=None)
+    tw = tw[tw.final & tw.regular].copy()
+    division_of = dict(zip(data.teams.roster_id, data.teams.division))
+    tw["div"] = tw.roster_id.map(division_of)
+    tw["opp_div"] = tw.opp_roster_id.map(division_of)
+    return tw
+
+
+def division_summary(data: LeagueData, table: pd.DataFrame,
+                     team_proj: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One row per division, ranked by all-play % (team strength without schedule luck).
+
+    `table` is `standings(data)`. Scoring stats are per team-week, so divisions of
+    different sizes compare fairly. `team_proj` is `projections.team_projections(data)`.
+    """
+    tw = division_team_weeks(data)
+    if tw.empty or not data.divisions:
+        return pd.DataFrame()
+    tw["top"] = tw.points == tw.groupby("week").points.transform("max")
+    tw["bottom"] = tw.points == tw.groupby("week").points.transform("min")
+    seeds, _ = playoff_picture(data, table)
+    eff = lineup_efficiency(data)
+    eff = eff[eff.week.isin(tw.week.unique())]
+    proj = team_proj if team_proj is not None else pd.DataFrame(columns=["roster_id", "diff"])
+
+    rows = []
+    for d, info in sorted(data.divisions.items()):
+        teams = table[table.division == d]
+        if teams.empty:
+            continue
+        rids = set(teams.roster_id)
+        g = tw[tw["div"] == d]
+        cross = g[g.opp_div.notna() & (g.opp_div != d)]
+        w, l, t = (int((g.result == r).sum()) for r in ("W", "L", "T"))
+        cw, cl, ct = (int((cross.result == r).sum()) for r in ("W", "L", "T"))
+        ap_w, ap_l = teams["AP W"].sum(), teams["AP L"].sum()
+        div_proj = proj[proj.roster_id.isin(rids)]
+        div_eff = eff[eff.roster_id.isin(rids)]
+        rows.append({
+            "division": d,
+            "avatar": info["avatar"],
+            "Division": info["name"],
+            "Teams": len(teams),
+            "W": w, "L": l, "T": t,
+            "Non-div W": cw, "Non-div L": cl, "Non-div T": ct,
+            "Non-div %": (cw + 0.5 * ct) / len(cross) if len(cross) else None,
+            "AP %": ap_w / (ap_w + ap_l) if ap_w + ap_l else None,
+            "Med %": g.beat_median.mean() if len(g) else None,
+            "Avg PF": g.points.mean(),
+            "Med PF": g.points.median(),
+            "Avg PA": g.opp_points.mean(),
+            "Med PA": g.opp_points.median(),
+            "PF / team": teams.PF.mean(),
+            "Std": g.points.std(),
+            "Best": g.points.max(),
+            "Worst": g.points.min(),
+            "Top weeks": int(g.top.sum()),
+            "Bottom weeks": int(g.bottom.sum()),
+            "Avg rank": teams.Rank.mean(),
+            "Best rank": int(teams.Rank.min()),
+            "Playoff": int((seeds.division == d).mul(seeds.Seed.notna()).sum()),
+            "Luck": teams.Luck.mean(),
+            "Efficiency": div_eff.efficiency.mean() if len(div_eff) else None,
+            "vs Proj": div_proj["diff"].mean() if len(div_proj) else None,
+        })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df = df.sort_values(["AP %", "Avg PF"], ascending=False).reset_index(drop=True)
+    df.insert(0, "Rank", range(1, len(df) + 1))
+    return df
+
+
+def division_matchups(data: LeagueData) -> pd.DataFrame:
+    """Head-to-head results between divisions (completed regular-season games).
+
+    One row per (division, opponent division) incl. intra-division games:
+    W, L, T, games, PF, PA (from `div`'s point of view).
+    """
+    tw = division_team_weeks(data)
+    cols = ["div", "opp_div", "W", "L", "T", "games", "PF", "PA"]
+    tw = tw[tw["div"].notna() & tw.opp_div.notna()] if not tw.empty else tw
+    if tw.empty:
+        return pd.DataFrame(columns=cols)
+    g = tw.groupby(["div", "opp_div"])
+    df = pd.DataFrame({
+        "W": g.result.apply(lambda r: (r == "W").sum()),
+        "L": g.result.apply(lambda r: (r == "L").sum()),
+        "T": g.result.apply(lambda r: (r == "T").sum()),
+        "games": g.size(),
+        "PF": g.points.sum(),
+        "PA": g.opp_points.sum(),
+    }).reset_index()
+    return df[cols]

@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sleeper import bracket, stats, theme
+from sleeper import bracket, projections, stats, theme
 
 data = st.session_state["data"]
 st.title("Standings")
@@ -158,3 +158,78 @@ fig.update_layout(height=480, xaxis_title="Points for", yaxis_title="Points agai
 st.plotly_chart(fig, width="stretch")
 st.caption("Right = scores a lot. Up = opponents score a lot against you (unlucky). "
            "Dotted lines are league averages.")
+
+# -- Points vs. projected points ---------------------------------------------------------
+st.subheader("Points vs. projected points")
+proj = projections.team_projections(data)
+if proj.empty:
+    st.info("Sleeper projections are unavailable right now.")
+    st.stop()
+
+vs = proj.groupby("roster_id").agg(
+    proj=("proj", "sum"), pf=("points", "sum"), diff=("diff", "sum"),
+    per_week=("diff", "mean"), beat=("diff", lambda d: int((d > 0).sum())),
+    weeks=("diff", "size"),
+).reset_index()
+vs["team"] = vs.roster_id.map(data.names)
+vs["Beat"] = vs.beat.astype(str) + " of " + vs.weeks.astype(str)
+vs = vs.sort_values("diff", ascending=False).reset_index(drop=True)
+GOOD, BAD = theme.DIVERGING[-1][1], theme.DIVERGING[0][1]
+
+left, right = st.columns([3, 2])
+with left:
+    fig = go.Figure(go.Bar(
+        x=vs["diff"], y=vs.team, orientation="h",
+        marker_color=[GOOD if d >= 0 else BAD for d in vs["diff"]],
+        text=[f"{d:+.1f}" for d in vs["diff"]], textposition="outside",
+        textfont=dict(color=theme.INK_2), cliponaxis=False,
+        customdata=vs[["pf", "proj", "Beat"]].to_numpy(),
+        hovertemplate=("<b>%{y}</b><br>%{x:+.2f} vs. projection<br>Actual %{customdata[0]:.2f}"
+                       " · projected %{customdata[1]:.2f}<br>Beat projection "
+                       "%{customdata[2]} weeks<extra></extra>"),
+    ))
+    fig.add_vline(0, line=dict(color=theme.AXIS, width=1))
+    fig.update_layout(height=max(320, 30 * len(vs) + 80), bargap=0.3,
+                      xaxis_title="Actual − projected points (season)",
+                      yaxis=dict(autorange="reversed"))
+    st.plotly_chart(fig, width="stretch")
+with right:
+    st.dataframe(
+        vs[["team", "pf", "proj", "diff", "per_week", "Beat"]],
+        hide_index=True, width="stretch", height=35 * (len(vs) + 1) + 3,
+        column_config={
+            "team": "Team",
+            "pf": st.column_config.NumberColumn("PF", format="%.2f"),
+            "proj": st.column_config.NumberColumn(
+                "Proj PF", format="%.2f",
+                help="Sleeper's projection for the lineup that was actually started"),
+            "diff": st.column_config.NumberColumn("+/−", format="%+.2f",
+                                                  help="Actual − projected, season"),
+            "per_week": st.column_config.NumberColumn("+/− per week", format="%+.2f"),
+            "Beat": st.column_config.TextColumn(
+                "Beat proj", help="Weeks the team scored more than projected"),
+        },
+    )
+
+grid = proj.pivot_table(index="roster_id", columns="week", values="diff").reindex(vs.roster_id)
+pf_grid = proj.pivot_table(index="roster_id", columns="week", values="points").reindex(
+    index=grid.index, columns=grid.columns)
+pj_grid = proj.pivot_table(index="roster_id", columns="week", values="proj").reindex(
+    index=grid.index, columns=grid.columns)
+lim = max(float(grid.abs().max().max()), 1.0)
+fig = go.Figure(go.Heatmap(
+    z=grid.to_numpy(), x=[f"W{w}" for w in grid.columns], y=vs.team,
+    customdata=pd.concat([pf_grid, pj_grid], axis=1, keys=["pf", "pj"]).to_numpy()
+    .reshape(len(grid), 2, -1).transpose(0, 2, 1),
+    colorscale=theme.DIVERGING, zmid=0, zmin=-lim, zmax=lim, xgap=2, ygap=2,
+    colorbar=dict(title="+/−", thickness=12),
+    hovertemplate=("<b>%{y}</b> · %{x}<br>%{z:+.2f} vs. projection<br>"
+                   "Actual %{customdata[0]:.2f} · projected %{customdata[1]:.2f}<extra></extra>"),
+))
+fig.update_layout(height=max(300, 30 * len(vs) + 100), yaxis=dict(autorange="reversed"),
+                  title="Actual − projected, by week")
+st.plotly_chart(fig, width="stretch")
+st.caption("Projected points = Sleeper's projection (this league's scoring) for each team's "
+           "actual starting lineup that week; starters without a projection count as 0. "
+           "Blue: outscored the projection. Red: fell short. Completed regular-season "
+           "weeks only.")
