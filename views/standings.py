@@ -47,6 +47,8 @@ COLUMN_CONFIG = {
     "PF": st.column_config.NumberColumn("PF", format="%.2f"),
     "PA": st.column_config.NumberColumn("PA", format="%.2f"),
     "Avg PF": st.column_config.NumberColumn("Avg PF", format="%.2f"),
+    "Avg PA": st.column_config.NumberColumn(
+        "Avg PA", format="%.2f", help="Average points scored against you per week"),
     "Med PF": st.column_config.NumberColumn(
         "Med PF", format="%.2f", help="Median points scored per week"),
     "Med PA": st.column_config.NumberColumn(
@@ -74,7 +76,7 @@ COLUMN_CONFIG = {
 def show_table(df, extra_cols=()):
     cols = ["Rank"] + (["avatar"] if df.avatar.notna().any() else []) + ["team", "owner"]
     cols += list(extra_cols) + ["Record", "Median"] + (["Total"] if data.median_game else [])
-    cols += ["PF", "PA", "Avg PF", "Med PF", "Med PA"] + (["Proj PF", "vs Proj"] if has_proj else [])
+    cols += ["PF", "PA", "Avg PF", "Avg PA", "Med PF", "Med PA"] + (["Proj PF", "vs Proj"] if has_proj else [])
     cols += ["All-play", "AP %", "Luck", "Bye luck"]
     st.dataframe(df[cols], hide_index=True, width="stretch",
                  height=35 * (len(df) + 1) + 3, column_config=COLUMN_CONFIG)
