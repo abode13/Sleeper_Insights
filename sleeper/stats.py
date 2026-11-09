@@ -483,6 +483,7 @@ def division_summary(data: LeagueData, table: pd.DataFrame,
         w, l, t = (int((g.result == r).sum()) for r in ("W", "L", "T"))
         cw, cl, ct = (int((cross.result == r).sum()) for r in ("W", "L", "T"))
         ap_w, ap_l = teams["AP W"].sum(), teams["AP L"].sum()
+        med_w = int(g.beat_median.sum())
         div_proj = proj[proj.roster_id.isin(rids)]
         div_eff = eff[eff.roster_id.isin(rids)]
         rows.append({
@@ -493,7 +494,9 @@ def division_summary(data: LeagueData, table: pd.DataFrame,
             "W": w, "L": l, "T": t,
             "Non-div W": cw, "Non-div L": cl, "Non-div T": ct,
             "Non-div %": (cw + 0.5 * ct) / len(cross) if len(cross) else None,
+            "AP W": ap_w, "AP L": ap_l,
             "AP %": ap_w / (ap_w + ap_l) if ap_w + ap_l else None,
+            "Med W": med_w, "Med L": len(g) - med_w,
             "Med %": g.beat_median.mean() if len(g) else None,
             "Avg PF": g.points.mean(),
             "Med PF": g.points.median(),

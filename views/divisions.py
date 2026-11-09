@@ -34,6 +34,8 @@ def record(w, l, t=0) -> str:
 summary["Record"] = [record(r.W, r.L, r.T) for r in summary.itertuples()]
 summary["Non-div"] = [record(w, l, t) for w, l, t in zip(
     summary["Non-div W"], summary["Non-div L"], summary["Non-div T"])]
+summary["All-play"] = summary["AP W"].map("{:g}".format) + "-" + summary["AP L"].map("{:g}".format)
+summary["Median"] = summary["Med W"].astype(str) + "-" + summary["Med L"].astype(str)
 
 # -- Leaders -------------------------------------------------------------------------------
 best = summary.iloc[0]
@@ -52,7 +54,7 @@ if pd.notna(top_cross["Non-div %"]):
 # -- Ranking table -----------------------------------------------------------------------
 st.subheader("Ranking")
 RANK_COLS = ["Rank"] + (["avatar"] if summary.avatar.notna().any() else []) + [
-    "Division", "Teams", "Record", "Non-div", "Non-div %", "AP %", "Med %",
+    "Division", "Teams", "Record", "Non-div", "Non-div %", "All-play", "AP %", "Median", "Med %",
     "Avg PF", "Avg PA", "Playoff", "Avg rank", "Best rank"]
 SCORING_COLS = ["Division", "Avg PF", "Med PF", "Avg PA", "Med PA", "PF / team", "Std",
                 "Best", "Worst", "Top weeks", "Bottom weeks", "Luck", "Efficiency", "vs Proj"]
@@ -77,6 +79,10 @@ HELP = {
     "AP %": st.column_config.Column(
         "All-play %", help="Share of games its teams would win playing every team every "
                            "week. The ranking uses this: it ignores schedule luck"),
+    "All-play": st.column_config.Column(
+        "All-play", help="Combined record of its teams if each had played every team every week"),
+    "Median": st.column_config.Column(
+        "Median", help="Combined record vs. the league median score each week"),
     "Med %": st.column_config.Column("Median %", help="Share of weeks above the league median"),
     "Avg PF": st.column_config.Column("Avg PF", help="Mean points scored per team-week"),
     "Med PF": st.column_config.Column("Med PF", help="Median points scored per team-week"),
@@ -219,10 +225,15 @@ st.plotly_chart(fig, width="stretch")
 st.subheader("Teams by division")
 for d in divs:
     t = table[table.division == d]
-    t = t.assign(Record=[record(r.W, r.L, r.T) for r in t.itertuples()])
+    t = t.assign(
+        Record=[record(r.W, r.L, r.T) for r in t.itertuples()],
+        Median=t["Med W"].astype(str) + "-" + t["Med L"].astype(str),
+        **{"All-play": t["AP W"].map("{:g}".format) + "-" + t["AP L"].map("{:g}".format)},
+    )
     with st.expander(f"{div_name[d]} · {len(t)} teams"):
         st.dataframe(
-            t[["Rank", "team", "owner", "Record", "PF", "PA", "Avg PF", "AP %", "Luck"]],
+            t[["Rank", "team", "owner", "Record", "Median", "All-play", "PF", "PA", "Avg PF",
+               "AP %", "Luck"]],
             hide_index=True, width="stretch",
             column_config={
                 "Rank": st.column_config.NumberColumn("League rank"),
